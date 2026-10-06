@@ -26,6 +26,7 @@
     --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html { -webkit-text-size-adjust: 100%; }
   body {
     margin: 0;
@@ -108,6 +109,8 @@
   }
   input.num { text-align: right; }
   input:disabled { background: transparent; border-style: dashed; color: var(--ink-3); }
+  input.needs { border-color: var(--marigold); background: var(--marigold-wash); }
+  h2 { scroll-margin-top: 170px; }
   input[aria-invalid="true"] { border-color: var(--alarm); background: var(--alarm-wash); }
 
   /* Tax position */
@@ -151,6 +154,37 @@
 
   .empty { padding: 22px 14px; color: var(--ink-2); }
   .section-head p.sample-note { margin-top: 6px; color: var(--marigold-deep); font-size: 14px; }
+  button.armed, button.quiet.armed { color: var(--alarm); border-color: var(--alarm); background: var(--alarm-wash); text-decoration: none; }
+  .two-step { position: relative; display: inline-flex; }
+  .arm-hint { position: absolute; top: calc(100% + 4px); right: 0; white-space: nowrap; font-size: 12.5px; font-weight: 600; color: var(--alarm); pointer-events: none; }
+  .arm-hint:empty { display: none; }
+
+  /* Paste from broker */
+  .import { margin: 0 0 16px; padding: 18px; background: var(--sheet); border: 1px solid var(--ink); border-radius: 8px; }
+  .import h3 { margin: 0 0 6px; font-size: 16px; }
+  .import .how { margin: 0 0 12px; font-size: 14px; color: var(--ink-2); max-width: 78ch; }
+  .import .how b { color: var(--ink); }
+  .import textarea {
+    display: block; width: 100%; min-height: 150px; resize: vertical;
+    font: 14px/1.45 var(--font); color: var(--ink);
+    padding: 10px 12px; border: 1px solid var(--rule); border-radius: var(--radius-field); background: #fff;
+  }
+  .import-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px 20px; margin-top: 14px; max-width: 560px; }
+  .import-preview { margin-top: 14px; }
+  .imp-msg { margin: 0 0 6px; font-size: 14px; color: var(--ink-2); }
+  .imp-msg.ok { color: var(--ok); font-weight: 600; }
+  .imp-msg.bad { color: var(--alarm); font-weight: 600; }
+  .imp-msg.warn { color: var(--marigold-deep); }
+  .imp-table { margin-top: 10px; max-height: 260px; overflow: auto; border: 1px solid var(--rule-soft); border-radius: 6px; background: #fff; }
+  .imp-table table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .imp-table th, .imp-table td { padding: 6px 10px; text-align: right; border-top: 1px solid var(--rule-soft); white-space: nowrap; }
+  .imp-table th { position: sticky; top: 0; background: var(--sheet); color: var(--ink-2); font-weight: 600; border-top: 0; }
+  .imp-table th:first-child, .imp-table td:first-child { text-align: left; }
+  .imp-table td.st { color: var(--marigold-deep); }
+  .check { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 14px; }
+  .import .actions { margin-top: 14px; }
+  .import-done { margin: 0 0 12px; color: var(--ok); font-weight: 600; }
+  .import-done:empty { display: none; }
 
   /* Summary */
   .summary { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 20px; margin-top: 18px; }
@@ -191,6 +225,10 @@
     .bar { height: 16px; margin-top: 10px; }
     .bar-legend { display: none; }
     .lots .row { align-items: end; }
+    input[type="text"], input[type="date"], .import textarea { font-size: 16px; } /* stops iPhone zooming in on focus */
+    .import { padding: 14px; }
+    .import-fields { grid-template-columns: 1fr; }
+    .imp-table th, .imp-table td { padding: 6px 6px; font-size: 13px; }
     .row.head { display: none; }
     .lots .row { grid-template-columns: 1fr 1fr 1fr; padding: 14px; gap: 10px 12px; position: relative; }
     .lots .c-name { grid-column: 1 / 3; }
@@ -312,8 +350,28 @@
         <p id="sampleNote" class="sample-note">These rows are made-up sample holdings. Replace them with yours, or clear all to start fresh.</p>
       </div>
       <div class="actions">
+        <button type="button" id="btnImport" aria-expanded="false" aria-controls="importPanel">Paste from broker</button>
         <button type="button" class="quiet" id="btnSample">Load sample</button>
         <button type="button" class="quiet" id="btnClear">Clear all</button>
+      </div>
+    </div>
+    <p class="import-done" id="importDone" aria-live="polite"></p>
+    <div class="import" id="importPanel" hidden>
+      <h3>Paste from your broker</h3>
+      <p class="how"><b>Zerodha Console:</b> open Holdings, tap a stock to see its breakdown, then select from the stock name down to the last row and copy. Do one stock at a time.<br>
+      <b>From a screenshot:</b> open it in Photos, press and hold on the text, choose Select All, then Copy. On Android, use Google Lens and Copy text.<br>
+      <b>From a spreadsheet:</b> copy rows that have a date, quantity and price.</p>
+      <label class="sr" for="impText">Copied text</label>
+      <textarea id="impText" spellcheck="false" placeholder="Paste here. For example:&#10;BHEL  ISIN INE257A01026  LTP 451.50&#10;2025-08-07  Qty. 200  Price 224.00&#10;2024-10-22  Qty. 17  Price 237.00"></textarea>
+      <div class="import-fields">
+        <div class="field"><label for="impName">Stock name</label><input type="text" id="impName" autocomplete="off" autocapitalize="characters"></div>
+        <div class="field"><label for="impCur">Price now (₹)</label><input type="text" id="impCur" inputmode="decimal" class="num"></div>
+      </div>
+      <div class="import-preview" id="impPreview" aria-live="polite"></div>
+      <label class="check" id="impReplaceWrap" hidden><input type="checkbox" id="impReplace" checked><span id="impReplaceText"></span></label>
+      <div class="actions">
+        <button type="button" class="primary" id="impAdd" disabled>Add lots</button>
+        <button type="button" id="impCancel">Cancel</button>
       </div>
     </div>
     <div class="grid lots" id="lotsGrid">
@@ -610,6 +668,140 @@ const Engine = (() => {
   return { num, parseDate, longTermFrom, analyzeLot, groupStocks, sell, maxAlone, optimize, greedy };
 })();
 
+/* Parses text copied from a broker page (e.g. Zerodha Console holdings breakdown),
+   text copied out of a screenshot, or spreadsheet rows. Pure functions, no DOM. */
+const Importer = (() => {
+  const MON = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+  const MONTHS = '(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.?';
+  const DATE_SRC = String.raw`\b(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})\b|\b(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})\b|\b(\d{1,2})[\s-]+` + MONTHS + String.raw`[\s,-]+(\d{4})\b`;
+  const NUM = String.raw`(\d{1,3}(?:,\d{2,3})+(?:\.\d+)?|\d+(?:\.\d+)?)`;
+  const QTY_RE = new RegExp(String.raw`\b(?:qty|quantity|shares|units|no\.?\s*of\s*shares)\.?\s*[:\-]?\s*` + NUM, 'i');
+  const PRICE_RE = new RegExp(String.raw`\b(?:avg\.?\s*|average\s*|buy\s*|purchase\s*|trade\s*)?(?:price|rate|cost)\.?\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*` + NUM, 'i');
+  const STOP = /^(summary|isin|ltp|xirr|p&l|p\s*&\s*l|total qty\.?|present value|apply|historical|rows?\b.*|manage tags|holdings|equity|qty\.?|price|days old)$/i;
+  const toNum = s => Number(String(s).replace(/,/g, ''));
+  const pad = n => String(n).padStart(2, '0');
+
+  function dateFrom(m) {
+    let y, mo, d;
+    if (m[1]) { y = +m[1]; mo = +m[2]; d = +m[3]; }
+    else if (m[4]) { d = +m[4]; mo = +m[5]; y = +m[6]; }          // Indian style: day first
+    else { d = +m[7]; mo = MON[m[8].toLowerCase().slice(0, 3)]; y = +m[9]; }
+    if (!mo || mo > 12 || d < 1 || d > 31 || y < 1980 || y > 2100) return null;
+    const dt = new Date(Date.UTC(y, mo - 1, d));
+    if (dt.getUTCMonth() !== mo - 1) return null;
+    return `${y}-${pad(mo)}-${pad(d)}`;
+  }
+  function findDates(text) {
+    const re = new RegExp(DATE_SRC, 'gi'), out = [];
+    let m;
+    while ((m = re.exec(text))) { const iso = dateFrom(m); if (iso) out.push({ iso, start: m.index, end: m.index + m[0].length }); }
+    return out;
+  }
+
+  // Split a row into cells. Commas count as separators only when the row is clearly CSV,
+  // because Indian number grouping (1,25,000) also uses commas.
+  function splitCells(line, d) {
+    if (line.includes('\t')) return line.split('\t');
+    if (line.includes(';')) return line.split(';');
+    if (line.includes('|')) return line.split('|');
+    const around = line.slice(Math.max(0, d.start - 2), d.end + 2);
+    if (/,/.test(around) || /,\s/.test(line)) {
+      const cells = []; let cur = '', q = false;
+      for (const ch of line) {
+        if (ch === '"') { q = !q; cur += ch; }
+        else if (ch === ',' && !q) { cells.push(cur); cur = ''; }
+        else cur += ch;
+      }
+      cells.push(cur);
+      return cells;
+    }
+    // plain text: dates stay whole, other words split on spaces
+    const head = line.slice(0, d.start).trim(), date = line.slice(d.start, d.end), tail = line.slice(d.end).trim();
+    return [...(head ? [head] : []), date, ...tail.split(/\s+/)];
+  }
+
+  function meta(text) {
+    const out = {};
+    const ltp = /\bLTP\b\s*[:\-]?\s*(?:₹|rs\.?)?\s*([\d,]+(?:\.\d+)?)/i.exec(text) ||
+                /\b(?:current|market|last)\s*(?:market\s*)?price\b\s*[:\-]?\s*(?:₹|rs\.?)?\s*([\d,]+(?:\.\d+)?)/i.exec(text);
+    if (ltp) { out.ltp = toNum(ltp[1]); out.ltpText = ltp[1].replace(/,/g, ''); }
+    const tq = /\btotal\s*qty\.?\s*[:\-]?\s*([\d,]+)/i.exec(text);
+    if (tq) out.totalQty = toNum(tq[1]);
+    const rows = /\bout\s+of\s+(\d+)/i.exec(text);
+    if (rows) out.rowCount = +rows[1];
+    const isin = /\b(IN[A-Z0-9]{9}\d)\b/.exec(text);
+    if (isin) out.isin = isin[1];
+    // stock name: text before "ISIN" on the same line, or the closest plausible line above it
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const plausible = s => s && s.length <= 40 && /[A-Za-z]/.test(s) && !STOP.test(s) &&
+      /^[A-Za-z0-9&.\- ']+$/.test(s) && !/^\d/.test(s);
+    let idx = lines.findIndex(l => /\bISIN\b/i.test(l) || (out.isin && l.includes(out.isin)));
+    if (idx >= 0) {
+      const before = lines[idx].split(/\bISIN\b/i)[0].replace(out.isin || '#', '').trim();
+      if (plausible(before)) out.name = before;
+      for (let i = idx - 1; !out.name && i >= 0 && i >= idx - 3; i--) if (plausible(lines[i])) out.name = lines[i];
+    }
+    if (!out.name) {
+      const firstDate = findDates(text)[0];
+      const head = firstDate ? text.slice(0, firstDate.start) : text;
+      const cand = head.split('\n').map(l => l.trim()).find(l => plausible(l) && /^[A-Z][A-Z0-9&.\-]{1,24}$/.test(l));
+      if (cand) out.name = cand;
+    }
+    if (out.name) out.name = out.name.toUpperCase().replace(/\s+/g, ' ');
+    return out;
+  }
+
+  function parse(raw) {
+    const text = String(raw || '').replace(/\r/g, '').replace(/[\u00a0\u2009\u202f]/g, ' ').replace(/[“”]/g, '"');
+    const info = meta(text);
+    const dates = findDates(text);
+    let lots = [];
+    // 1) Labelled layout: a date, then "Qty" and "Price" somewhere before the next date
+    dates.forEach((d, i) => {
+      const seg = text.slice(d.end, i + 1 < dates.length ? dates[i + 1].start : text.length);
+      const q = QTY_RE.exec(seg), p = PRICE_RE.exec(seg);
+      if (q && p) lots.push({ date: d.iso, qty: toNum(q[1]), price: toNum(p[1]) });
+    });
+    let mode = 'labelled';
+    // 2) Row layout: each line has a date followed by quantity and price (spreadsheet / CSV)
+    let sells = 0;
+    if (!lots.length) {
+      mode = 'rows';
+      for (const line of text.split('\n')) {
+        const ds = findDates(line);
+        if (!ds.length) continue;
+        const cells = splitCells(line, ds[0]);
+        const di = cells.findIndex(c => findDates(c).length);
+        if (di < 0) continue;
+        if (cells.some(c => /^\s*"?\s*(sell|s)\s*"?\s*$/i.test(c))) { sells++; continue; }
+        const nums = [];
+        for (let i = di + 1; i < cells.length; i++) {
+          const c = cells[i].replace(/["₹]|rs\.?|inr/gi, '').trim();
+          if (/^\d[\d,]*(\.\d+)?$/.test(c)) nums.push(c);
+        }
+        const qi = nums.findIndex(n => Number.isInteger(toNum(n)));   // "200" or "200.000000"
+        if (qi < 0 || qi + 1 >= nums.length) continue;
+        const lot = { date: findDates(cells[di])[0].iso, qty: toNum(nums[qi]), price: toNum(nums[qi + 1]) };
+        const name = cells.slice(0, di).map(c => c.replace(/"/g, '').trim())
+          .find(c => /^[A-Za-z][A-Za-z0-9&.\- ']{0,39}$/.test(c) && !STOP.test(c));
+        if (name) lot.name = name.toUpperCase().replace(/\s+/g, ' ');
+        lots.push(lot);
+      }
+    }
+    const problems = [];
+    lots = lots.filter(l => {
+      const ok = Number.isInteger(l.qty) && l.qty > 0 && Number.isFinite(l.price) && l.price >= 0;
+      if (!ok) problems.push(`Skipped a row dated ${l.date}: shares or price unreadable`);
+      return ok;
+    });
+    const qty = lots.reduce((t, l) => t + l.qty, 0);
+    if (sells) problems.push(`Skipped ${sells} sell trade${sells > 1 ? 's' : ''}. Copy your holdings breakdown instead of the tradebook, since it already accounts for sales.`);
+    return { lots, mode, qty, ...info, problems };
+  }
+
+  return { parse, findDates };
+})();
+
 </script>
 <script>
 (() => {
@@ -771,19 +963,136 @@ const Engine = (() => {
     const lot = blankLot(); state.lots.push(lot); renderLots(); schedule(true);
     const el = $(`name-${lot.id}`); if (el) el.focus();
   });
-  $('btnSample').addEventListener('click', () => { state.lots = sampleLots(); state.sell = {}; state.exclude = {}; state.auto = true; state.sample = true; renderLots(); schedule(true); });
-  $('btnClear').addEventListener('click', () => {
-    if (!confirmClear()) return;
-    state.lots = [blankLot()]; state.sell = {}; state.exclude = {}; state.auto = true; state.sample = false; renderLots(); schedule(true);
-  });
-  let clearArmed = false, clearTimer = null;
-  function confirmClear() {
-    // two-step clear without a blocking dialog
-    if (clearArmed) { clearArmed = false; $('btnClear').textContent = 'Clear all'; return true; }
-    clearArmed = true; $('btnClear').textContent = 'Click again to clear';
-    clearTimeout(clearTimer); clearTimer = setTimeout(() => { clearArmed = false; $('btnClear').textContent = 'Clear all'; }, 3000);
-    return false;
+  const isBlank = l => !['name', 'qty', 'buy', 'cur'].some(f => String(l[f] || '').trim());
+  const hasOwnData = () => !state.sample && state.lots.some(l => !isBlank(l));
+  // Destructive buttons need a second press (a double click also works) so one stray tap can't wipe your list.
+  // The button itself never changes size, so the second click of a double click lands on it too.
+  function twoStep(btn, armedText, action, needsConfirm) {
+    const wrap = document.createElement('span'); wrap.className = 'two-step';
+    btn.parentNode.insertBefore(wrap, btn); wrap.appendChild(btn);
+    const hint = document.createElement('span'); hint.className = 'arm-hint'; hint.setAttribute('role', 'status');
+    wrap.appendChild(hint);
+    let armed = false, t = null;
+    const reset = () => { armed = false; clearTimeout(t); hint.textContent = ''; btn.classList.remove('armed'); };
+    btn.addEventListener('click', () => {
+      if (armed || !needsConfirm()) { reset(); action(); return; }
+      armed = true; hint.textContent = armedText; btn.classList.add('armed');
+      t = setTimeout(reset, 4000);
+    });
   }
+  twoStep($('btnSample'), 'Press again to replace your list', () => {
+    state.lots = sampleLots(); state.sell = {}; state.exclude = {}; state.auto = true; state.sample = true; renderLots(); schedule(true);
+  }, hasOwnData);
+  twoStep($('btnClear'), 'Press again to clear', () => {
+    state.lots = [blankLot()]; state.sell = {}; state.exclude = {}; state.auto = true; state.sample = false; renderLots(); schedule(true);
+  }, () => state.lots.some(l => !isBlank(l)));
+
+  // ---------- paste from broker ----------
+  const keyName = s => String(s || '').trim().toUpperCase().replace(/\s+/g, ' ');
+  const imp = { nameEdited: false, curEdited: false, result: null };
+  let doneTimer = null;
+  function openImport() {
+    $('importPanel').hidden = false; $('btnImport').setAttribute('aria-expanded', 'true');
+    $('importDone').textContent = '';
+    $('impText').focus();
+  }
+  function closeImport() {
+    $('importPanel').hidden = true; $('btnImport').setAttribute('aria-expanded', 'false');
+    $('impText').value = ''; $('impName').value = ''; $('impCur').value = '';
+    imp.nameEdited = imp.curEdited = false; previewImport();
+  }
+  $('btnImport').addEventListener('click', () => ($('importPanel').hidden ? openImport() : closeImport()));
+  $('impCancel').addEventListener('click', closeImport);
+  $('impText').addEventListener('input', previewImport);
+  $('impName').addEventListener('input', () => { imp.nameEdited = !!$('impName').value; previewImport(); });
+  $('impCur').addEventListener('input', () => { imp.curEdited = !!$('impCur').value; previewImport(); });
+  $('impReplace').addEventListener('change', previewImport);
+
+  function previewImport() {
+    const raw = $('impText').value;
+    const r = raw.trim() ? Importer.parse(raw) : null;
+    imp.result = r;
+    const out = $('impPreview'), add = $('impAdd'), wrap = $('impReplaceWrap');
+    add.disabled = true; add.textContent = 'Add lots'; wrap.hidden = true;
+    if (!r) { out.innerHTML = ''; return; }
+    if (r.name && !imp.nameEdited) $('impName').value = r.name;
+    if (r.ltp && !imp.curEdited) $('impCur').value = r.ltpText || String(r.ltp);
+    if (!r.lots.length) {
+      out.innerHTML = `<p class="imp-msg bad">No purchases found yet. Each purchase needs a date, a quantity and a price.</p>` +
+        r.problems.map(p => `<p class="imp-msg warn">${esc(p)}</p>`).join('');
+      return;
+    }
+    const name = keyName($('impName').value);
+    const cur = E.num($('impCur').value);
+    const allNamed = r.lots.every(l => l.name);
+    const needsCur = r.lots.some(l => !l.name || l.name === name);
+    const saleDate = E.parseDate(state.settings.saleDate) || E.parseDate(todayISO());
+    const n = r.lots.length, plural = (k, w) => `${int(k)} ${w}${k === 1 ? '' : 's'}`;
+    const msgs = [`<p class="imp-msg">Found ${plural(n, 'purchase')}, ${plural(r.qty, 'share')} in total.</p>`];
+    if (r.totalQty) {
+      if (r.qty === r.totalQty) msgs.push(`<p class="imp-msg ok">This matches the ${int(r.totalQty)} shares your broker shows.</p>`);
+      else if (r.qty < r.totalQty) msgs.push(`<p class="imp-msg bad">Your broker shows ${int(r.totalQty)} shares, so ${int(r.totalQty - r.qty)} are missing. Stretch your selection to the last row and copy again.</p>`);
+      else msgs.push(`<p class="imp-msg bad">That's more than the ${int(r.totalQty)} shares your broker shows. Some rows may be pasted twice.</p>`);
+    } else if (r.rowCount) {
+      if (r.rowCount === n) msgs.push(`<p class="imp-msg ok">All ${int(n)} rows your broker lists are here.</p>`);
+      else msgs.push(`<p class="imp-msg bad">Your broker lists ${int(r.rowCount)} rows but ${int(n)} were found. Stretch your selection to the last row and copy again.</p>`);
+    } else {
+      msgs.push(`<p class="imp-msg warn">Check the share count against your broker before adding.</p>`);
+    }
+    const rows = r.lots.map(l => {
+      const a = E.analyzeLot({ qty: l.qty, buy: l.price, cur: cur > 0 ? cur : l.price, date: l.date }, saleDate);
+      return { l, a };
+    });
+    const gf = rows.filter(x => x.a.grandfathered).length;
+    const st = rows.filter(x => x.a.term === 'ST').length;
+    if (st) msgs.push(`<p class="imp-msg warn">${plural(st, 'lot')} will still be short-term on ${fmtDate(saleDate)}.</p>`);
+    if (gf) msgs.push(`<p class="imp-msg warn">${plural(gf, 'lot')} bought before February 2018. After adding, enter the 31 January 2018 price for ${gf === 1 ? 'it' : 'them'}.</p>`);
+    r.problems.forEach(p => msgs.push(`<p class="imp-msg warn">${esc(p)}</p>`));
+    if (!name && !allNamed) msgs.push(`<p class="imp-msg bad">Enter the stock name.</p>`);
+    if (needsCur && !(cur > 0)) msgs.push(`<p class="imp-msg bad">Enter the price now to add these lots.</p>`);
+    const table = `<div class="imp-table"><table><thead><tr><th>Bought on</th>${allNamed ? '<th>Stock</th>' : ''}<th>Shares</th><th>Buy price</th><th>Status</th></tr></thead><tbody>` +
+      rows.map(({ l, a }) => `<tr><td>${fmtDate(E.parseDate(l.date))}</td>${allNamed ? `<td>${esc(l.name)}</td>` : ''}<td>${int(l.qty)}</td><td>${inrPS(l.price)}</td>` +
+        `<td class="${a.term === 'ST' ? 'st' : ''}">${a.term === 'ST' ? 'Short-term' : 'Long-term'}</td></tr>`).join('') + '</tbody></table></div>';
+    out.innerHTML = msgs.join('') + table;
+
+    const incomingKeys = new Set(r.lots.map(l => l.name || name).filter(Boolean));
+    const existing = state.sample ? 0 : state.lots.filter(l => !isBlank(l) && incomingKeys.has(keyName(l.name))).length;
+    if (existing) {
+      wrap.hidden = false;
+      $('impReplaceText').textContent = `Replace the ${plural(existing, 'lot')} of ${[...incomingKeys].join(', ')} already in your list`;
+    }
+    const ready = (name || allNamed) && (!needsCur || cur > 0);
+    add.disabled = !ready;
+    add.textContent = `Add ${plural(n, 'lot')}`;
+  }
+
+  $('impAdd').addEventListener('click', () => {
+    const r = imp.result; if (!r || !r.lots.length) return;
+    const name = keyName($('impName').value);
+    const cur = $('impCur').value.trim();
+    const priceFor = k => {
+      if (k === name && cur) return cur;
+      const sib = state.lots.find(o => keyName(o.name) === k && o.cur);
+      return sib ? sib.cur : '';
+    };
+    const fresh = r.lots.map(l => {
+      const k = l.name || name;
+      return { id: newId(), name: k, date: l.date, qty: String(l.qty), buy: String(l.price), cur: priceFor(k), fmv: '' };
+    });
+    const keys = new Set(fresh.map(l => l.name));
+    let kept = state.sample ? [] : state.lots.filter(l => !isBlank(l));
+    if (!$('impReplaceWrap').hidden && $('impReplace').checked) kept = kept.filter(l => !keys.has(keyName(l.name)));
+    else kept.forEach(l => { if (keys.has(keyName(l.name)) && keyName(l.name) === name && cur) l.cur = cur; }); // one price per stock
+    state.lots = [...kept, ...fresh];
+    state.sample = false; state.auto = true;
+    renderLots(); schedule(true);
+    const gf = fresh.filter(l => l.date <= '2018-01-31').length;
+    closeImport();
+    $('importDone').textContent = `Added ${fresh.length} lot${fresh.length === 1 ? '' : 's'} of ${[...keys].join(', ')}.` +
+      (gf ? ' Enter the 31 January 2018 price on the highlighted pre-2018 lots.' : '');
+    clearTimeout(doneTimer); doneTimer = setTimeout(() => { $('importDone').textContent = ''; }, 12000);
+    $('h-lots').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+  });
 
   // ---------- plan grid ----------
   $('btnFill').addEventListener('click', () => { state.auto = true; schedule(true); });
@@ -916,6 +1225,7 @@ const Engine = (() => {
       const gfEligible = a && a.grandfathered;
       fmvEl.disabled = !gfEligible;
       fmvEl.placeholder = gfEligible ? 'from broker' : '—';
+      fmvEl.classList.toggle('needs', !!(gfEligible && !(E.num(fmvEl.value) > 0)));
       if (!gfEligible && fmvEl.value) { /* keep value but ignore */ }
       const set = (k, html) => { row.querySelector(`[data-out="${k}"]`).innerHTML = html; };
       ['qty', 'buy', 'cur'].forEach(f => $(`${f}-${lot.id}`).setAttribute('aria-invalid', 'false'));
