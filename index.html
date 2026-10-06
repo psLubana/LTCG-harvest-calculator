@@ -1,0 +1,1366 @@
+<!DOCTYPE html>
+<html lang="en-IN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Free LTCG harvest calculator for Indian investors. Find how many shares you can sell to keep long-term capital gains within the ₹1.25 lakh tax-free limit, with FIFO lots and the 2018 grandfathering rule.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2312332B'/%3E%3Crect x='6' y='13' width='20' height='6' rx='1' fill='%23F7FAF7'/%3E%3Crect x='6' y='13' width='14' height='6' rx='1' fill='%23E0A01B'/%3E%3C/svg%3E">
+<title>LTCG harvest calculator</title>
+<style>
+  :root {
+    --paper: #E9EFEA;
+    --sheet: #F7FAF7;
+    --ink: #12332B;
+    --ink-2: #4D665E;
+    --ink-3: #7A9088;
+    --rule: #C4D2C9;
+    --rule-soft: #D9E3DC;
+    --marigold: #E0A01B;
+    --marigold-deep: #A9760B;
+    --marigold-wash: #FBEFD2;
+    --sage: #93B1A0;
+    --alarm: #B23A2B;
+    --alarm-wash: #F7E3DE;
+    --ok: #2E7A5F;
+    --radius-field: 6px;
+    --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 15px/1.5 var(--font);
+    font-variant-numeric: tabular-nums;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  /* Header */
+  .masthead { padding: 36px 0 22px; }
+  .masthead h1 { margin: 0; font-size: 30px; line-height: 1.15; letter-spacing: -0.015em; font-weight: 700; }
+  .masthead p { margin: 8px 0 0; max-width: 66ch; color: var(--ink-2); }
+
+  /* Meter: the one loud element */
+  .meter {
+    position: sticky; top: 0; z-index: 5;
+    background: var(--paper);
+    border-bottom: 1px solid var(--rule);
+    padding: 14px 0 16px;
+  }
+  .meter-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+  .readout { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  .readout-figure { font-size: 46px; line-height: 1; font-weight: 750; letter-spacing: -0.03em; }
+  .readout-caption { color: var(--ink-2); font-size: 15px; }
+  .meter[data-state="buffer"] .readout-figure { color: var(--marigold-deep); }
+  .meter[data-state="over"] .readout-figure { color: var(--alarm); }
+  .stats { display: flex; gap: 28px; flex-wrap: wrap; }
+  .stat { min-width: 0; }
+  .stat dt { font-size: 12.5px; color: var(--ink-2); }
+  .stat dd { margin: 0; font-size: 18px; font-weight: 650; }
+  .meter[data-state="over"] .stat-tax dd { color: var(--alarm); }
+
+  .bar { position: relative; height: 22px; margin-top: 14px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 4px; overflow: hidden; }
+  .bar-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; display: flex; }
+  .seg { height: 100%; transition: width .35s ease; border-right: 2px solid var(--sheet); }
+  .seg:last-child { border-right: 0; }
+  .seg-booked { background: var(--sage); }
+  .seg-stock { background: var(--marigold); }
+  .seg-stock:nth-child(even) { background: #C98D10; }
+  .bar-over { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(135deg, var(--alarm) 0 6px, #C85546 6px 12px); transition: left .35s ease, width .35s ease; }
+  .bar-buffer { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(135deg, transparent 0 5px, rgba(18,51,43,.16) 5px 7px); border-left: 1px dashed var(--ink-3); }
+  .bar-limit { position: absolute; top: -1px; bottom: -1px; width: 2px; background: var(--ink); }
+  .bar-legend { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 8px; font-size: 12.5px; color: var(--ink-2); }
+  .key { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 11px; height: 11px; border-radius: 2px; display: inline-block; }
+  .sw-booked { background: var(--sage); }
+  .sw-plan { background: var(--marigold); }
+  .sw-buffer { background: repeating-linear-gradient(135deg, var(--sheet) 0 3px, rgba(18,51,43,.3) 3px 4px); border: 1px solid var(--ink-3); }
+  .sw-over { background: var(--alarm); }
+  @media (prefers-reduced-motion: reduce) { .seg, .bar-over { transition: none; } }
+
+  /* Sections */
+  main { padding-bottom: 64px; }
+  section { margin-top: 34px; }
+  .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+  h2 { margin: 0; font-size: 20px; letter-spacing: -0.01em; font-weight: 700; }
+  .section-head p { margin: 4px 0 0; color: var(--ink-2); max-width: 70ch; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  button {
+    font: inherit; font-size: 14px; cursor: pointer;
+    border-radius: 6px; padding: 8px 14px;
+    border: 1px solid var(--rule); background: var(--sheet); color: var(--ink);
+  }
+  button:hover { border-color: var(--ink-3); }
+  button.primary { background: var(--ink); border-color: var(--ink); color: #fff; font-weight: 600; }
+  button.primary:hover { background: #1D4A3F; }
+  button.quiet { background: transparent; border-color: transparent; color: var(--ink-2); padding: 8px 10px; }
+  button.quiet:hover { color: var(--ink); text-decoration: underline; }
+  :focus-visible { outline: 3px solid var(--marigold); outline-offset: 2px; }
+
+  input[type="text"], input[type="date"] {
+    font: inherit; font-size: 14.5px; color: var(--ink);
+    width: 100%; min-width: 0;
+    padding: 7px 9px; border: 1px solid var(--rule); border-radius: var(--radius-field);
+    background: #fff;
+  }
+  input.num { text-align: right; }
+  input:disabled { background: transparent; border-style: dashed; color: var(--ink-3); }
+  input.needs { border-color: var(--marigold); background: var(--marigold-wash); }
+  h2 { scroll-margin-top: 170px; }
+  input[aria-invalid="true"] { border-color: var(--alarm); background: var(--alarm-wash); }
+
+  /* Tax position */
+  .position { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px 20px; }
+  .field label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 5px; }
+  .field .help { margin: 5px 0 0; font-size: 12.5px; color: var(--ink-2); line-height: 1.4; }
+  .derivation { margin-top: 16px; padding: 12px 14px; background: var(--sheet); border-left: 3px solid var(--ink); font-size: 14.5px; }
+  .derivation strong { font-weight: 700; }
+
+  /* Grids (holdings + plan) */
+  .grid { background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; }
+  .row { display: grid; gap: 10px; align-items: center; padding: 9px 14px; border-top: 1px solid var(--rule-soft); }
+  .row:first-child { border-top: 0; }
+  .row.head { font-size: 12.5px; color: var(--ink-2); font-weight: 600; padding-top: 11px; padding-bottom: 8px; }
+  .lots .row { grid-template-columns: minmax(130px,1.6fr) minmax(128px,1.15fr) minmax(64px,.7fr) minmax(80px,.9fr) minmax(80px,.9fr) minmax(86px,.9fr) minmax(74px,.8fr) minmax(86px,.9fr) minmax(120px,1.25fr) 32px; }
+  .plan .row { grid-template-columns: 26px minmax(120px,1.3fr) minmax(90px,.9fr) minmax(100px,1fr) minmax(90px,.85fr) minmax(96px,1fr) minmax(96px,1fr) minmax(170px,2fr); }
+  .row .r { text-align: right; }
+  .cell-label { display: none; }
+  .calc { font-weight: 600; }
+  .neg { color: var(--alarm); }
+  .muted { color: var(--ink-3); }
+  .status { font-size: 13px; line-height: 1.35; }
+  .status .lt { color: var(--ok); font-weight: 600; }
+  .status .st { color: var(--marigold-deep); font-weight: 600; }
+  .status .err { color: var(--alarm); }
+  .tag { display: inline-block; font-size: 11.5px; padding: 1px 6px; border-radius: 3px; background: var(--marigold-wash); color: var(--marigold-deep); margin-top: 2px; }
+  .remove { width: 30px; height: 30px; padding: 0; border-color: transparent; background: transparent; color: var(--ink-3); font-size: 18px; line-height: 1; }
+  .remove:hover { color: var(--alarm); border-color: var(--rule); }
+  .grid-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; border-top: 1px solid var(--rule); font-size: 14px; color: var(--ink-2); }
+  .grid-foot b { color: var(--ink); }
+
+  .plan .row.total { border-top: 1px solid var(--rule); font-weight: 700; }
+  .plan .row.excluded { color: var(--ink-3); }
+  .note { font-size: 13px; line-height: 1.4; color: var(--ink-2); }
+  .note .warn { color: var(--marigold-deep); font-weight: 600; }
+  .note .bad { color: var(--alarm); font-weight: 600; }
+  input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--ink); margin: 0; }
+  .plan-status { font-size: 13.5px; color: var(--ink-2); }
+  .plan-status[data-auto="false"] { color: var(--marigold-deep); }
+  .sell-input.edited { border-color: var(--marigold); background: var(--marigold-wash); }
+
+  .empty { padding: 22px 14px; color: var(--ink-2); }
+  .section-head p.sample-note { margin-top: 6px; color: var(--marigold-deep); font-size: 14px; }
+  button.armed, button.quiet.armed { color: var(--alarm); border-color: var(--alarm); background: var(--alarm-wash); text-decoration: none; }
+  .two-step { position: relative; display: inline-flex; }
+  .arm-hint { position: absolute; top: calc(100% + 4px); right: 0; white-space: nowrap; font-size: 12.5px; font-weight: 600; color: var(--alarm); pointer-events: none; }
+  .arm-hint:empty { display: none; }
+
+  /* Paste from broker */
+  .import { margin: 0 0 16px; padding: 18px; background: var(--sheet); border: 1px solid var(--ink); border-radius: 8px; }
+  .import h3 { margin: 0 0 6px; font-size: 16px; }
+  .import .how { margin: 0 0 12px; font-size: 14px; color: var(--ink-2); max-width: 78ch; }
+  .import .how b { color: var(--ink); }
+  .import textarea {
+    display: block; width: 100%; min-height: 150px; resize: vertical;
+    font: 14px/1.45 var(--font); color: var(--ink);
+    padding: 10px 12px; border: 1px solid var(--rule); border-radius: var(--radius-field); background: #fff;
+  }
+  .import-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px 20px; margin-top: 14px; max-width: 560px; }
+  .import-preview { margin-top: 14px; }
+  .imp-msg { margin: 0 0 6px; font-size: 14px; color: var(--ink-2); }
+  .imp-msg.ok { color: var(--ok); font-weight: 600; }
+  .imp-msg.bad { color: var(--alarm); font-weight: 600; }
+  .imp-msg.warn { color: var(--marigold-deep); }
+  .imp-table { margin-top: 10px; max-height: 260px; overflow: auto; border: 1px solid var(--rule-soft); border-radius: 6px; background: #fff; }
+  .imp-table table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .imp-table th, .imp-table td { padding: 6px 10px; text-align: right; border-top: 1px solid var(--rule-soft); white-space: nowrap; }
+  .imp-table th { position: sticky; top: 0; background: var(--sheet); color: var(--ink-2); font-weight: 600; border-top: 0; }
+  .imp-table th:first-child, .imp-table td:first-child { text-align: left; }
+  .imp-table td.st { color: var(--marigold-deep); }
+  .check { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 14px; }
+  .import .actions { margin-top: 14px; }
+  .import-done { margin: 0 0 12px; color: var(--ok); font-weight: 600; }
+  .import-done:empty { display: none; }
+
+  /* Summary */
+  .summary { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 20px; margin-top: 18px; }
+  .panel { background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 16px 18px; }
+  .panel h3 { margin: 0 0 10px; font-size: 16px; }
+  .ledger { margin: 0; }
+  .ledger div { display: flex; justify-content: space-between; gap: 16px; padding: 5px 0; border-top: 1px solid var(--rule-soft); }
+  .ledger div:first-child { border-top: 0; }
+  .ledger dt { color: var(--ink-2); }
+  .ledger dd { margin: 0; font-weight: 600; text-align: right; }
+  .ledger .sum { border-top: 1px solid var(--ink); }
+  .ledger .sum dt, .ledger .sum dd { color: var(--ink); font-weight: 700; }
+  .panel p { margin: 10px 0 0; font-size: 14px; color: var(--ink-2); }
+  .panel p b { color: var(--ink); }
+
+  .notes { columns: 2; column-gap: 36px; max-width: 1000px; }
+  .notes p { margin: 0 0 12px; break-inside: avoid; font-size: 14.5px; color: var(--ink-2); }
+  .notes b { color: var(--ink); }
+  .fineprint { margin-top: 20px; font-size: 13px; color: var(--ink-3); max-width: 80ch; }
+  .saved { font-size: 12.5px; color: var(--ink-3); }
+
+  @media (max-width: 980px) {
+    .position { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .summary { grid-template-columns: 1fr; }
+    .notes { columns: 1; }
+  }
+  /* Card layout for the two grids on narrow screens */
+  @media (max-width: 860px) {
+    .wrap { padding: 0 16px; }
+    .meter { padding: 10px 0 12px; }
+    .readout { gap: 8px; }
+    .readout-figure { font-size: 32px; }
+    .readout-caption { font-size: 13.5px; }
+    .meter-top { gap: 8px; }
+    .stats { gap: 16px; width: 100%; }
+    .stat dt { font-size: 11.5px; }
+    .stat dd { font-size: 15px; }
+    .bar { height: 16px; margin-top: 10px; }
+    .bar-legend { display: none; }
+    .lots .row { align-items: end; }
+    input[type="text"], input[type="date"], .import textarea { font-size: 16px; } /* stops iPhone zooming in on focus */
+    .import { padding: 14px; }
+    .import-fields { grid-template-columns: 1fr; }
+    .imp-table th, .imp-table td { padding: 6px 6px; font-size: 13px; }
+    .row.head { display: none; }
+    .lots .row { grid-template-columns: 1fr 1fr 1fr; padding: 14px; gap: 10px 12px; position: relative; }
+    .lots .c-name { grid-column: 1 / 3; }
+    .lots .c-date { grid-column: 3 / 4; }
+    .lots .c-status { grid-column: 1 / 4; }
+    .lots .c-remove { position: absolute; top: 8px; right: 8px; }
+    .lots .c-name { padding-right: 34px; }
+    .plan .row { grid-template-columns: 26px 1fr 1fr; padding: 14px; gap: 8px 12px; }
+    .plan .c-inc { grid-column: 1; grid-row: 1 / span 5; align-self: start; padding-top: 2px; }
+    .plan .c-stock, .plan .c-note { grid-column: 2 / 4; }
+    .plan .row.total { grid-template-columns: 1fr 1fr; }
+    .plan .row.total .c-tlabel, .plan .row.total .note { grid-column: 1 / 3; }
+    .cell-label { display: block; font-size: 12px; color: var(--ink-2); margin-bottom: 3px; font-weight: 600; }
+    .row .r { text-align: left; }
+    input.num { text-align: left; }
+    .plan .row.total .c-pad { display: none; }
+    .plan .row.total .r { text-align: left; }
+  }
+  @media (max-width: 520px) {
+    .position { grid-template-columns: 1fr; }
+    .masthead h1 { font-size: 25px; }
+    .lots .row { grid-template-columns: 1fr 1fr; }
+    .lots .c-name { grid-column: 1 / 3; }
+    .lots .c-date { grid-column: 1 / 3; }
+    .lots .c-status { grid-column: 1 / 3; }
+    .plan .row { grid-template-columns: 26px 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header class="wrap masthead">
+  <h1>LTCG harvest calculator</h1>
+  <p>Work out how many shares you can sell this financial year while keeping your long-term capital gains inside the tax-free limit. Lots of the same stock are sold oldest first, the way your demat account does it.</p>
+</header>
+
+<div class="meter" id="meter" data-state="ok">
+  <div class="wrap">
+    <div class="meter-top">
+      <div class="readout" aria-live="polite">
+        <span class="readout-figure" id="roomFigure">₹0</span>
+        <span class="readout-caption" id="roomCaption">room left</span>
+      </div>
+      <dl class="stats">
+        <div class="stat"><dt>Planned gain</dt><dd id="statGain">₹0</dd></div>
+        <div class="stat"><dt>Sale value</dt><dd id="statSale">₹0</dd></div>
+        <div class="stat stat-tax"><dt>Estimated tax</dt><dd id="statTax">₹0</dd></div>
+      </dl>
+    </div>
+    <div class="bar" id="bar" role="img" aria-label="Tax-free limit usage">
+      <div class="bar-fill" id="barFill"></div>
+      <div class="bar-buffer" id="barBuffer"></div>
+      <div class="bar-over" id="barOver"></div>
+      <div class="bar-limit" id="barLimit"></div>
+    </div>
+    <div class="bar-legend">
+      <span class="key"><span class="swatch sw-booked"></span>Already booked</span>
+      <span class="key"><span class="swatch sw-plan"></span>This plan, one block per stock</span>
+      <span class="key"><span class="swatch sw-buffer"></span>Safety buffer</span>
+      <span class="key"><span class="swatch sw-over"></span>Taxable</span>
+    </div>
+  </div>
+</div>
+
+<main class="wrap">
+
+  <section aria-labelledby="h-position">
+    <div class="section-head">
+      <div>
+        <h2 id="h-position">Your tax position</h2>
+        <p id="fyLine">The tax-free limit is per person, per financial year.</p>
+      </div>
+    </div>
+    <div class="position">
+      <div class="field">
+        <label for="s-limit">Tax-free limit (₹)</label>
+        <input type="text" inputmode="decimal" class="num" id="s-limit" data-setting="limit">
+        <p class="help">₹1,25,000 for FY 2026-27. Shares and equity mutual funds share this one limit.</p>
+      </div>
+      <div class="field">
+        <label for="s-booked">Long-term gains already booked (₹)</label>
+        <input type="text" inputmode="decimal" class="num" id="s-booked" data-setting="booked">
+        <p class="help">Since 1 April, from shares and equity mutual funds, including SIP redemptions.</p>
+      </div>
+      <div class="field">
+        <label for="s-losses">Capital losses to set off (₹)</label>
+        <input type="text" inputmode="decimal" class="num" id="s-losses" data-setting="losses">
+        <p class="help">This year's losses and long-term losses carried forward. Leave out any short-term loss you need against short-term gains.</p>
+      </div>
+      <div class="field">
+        <label for="s-buffer">Safety buffer (₹)</label>
+        <input type="text" inputmode="decimal" class="num" id="s-buffer" data-setting="buffer">
+        <p class="help">Keeps you under the limit if prices move before your orders fill.</p>
+      </div>
+      <div class="field">
+        <label for="s-date">Selling on</label>
+        <input type="date" id="s-date" data-setting="saleDate">
+        <p class="help">Used for the 12-month holding check.</p>
+      </div>
+      <div class="field">
+        <label for="s-ltrate">Long-term tax rate (%)</label>
+        <input type="text" inputmode="decimal" class="num" id="s-ltrate" data-setting="ltRate">
+        <p class="help">On gains above the limit. 4% cess is added on top.</p>
+      </div>
+      <div class="field">
+        <label for="s-strate">Short-term tax rate (%)</label>
+        <input type="text" inputmode="decimal" class="num" id="s-strate" data-setting="stRate">
+        <p class="help">Applies if a sale reaches shares held 12 months or less.</p>
+      </div>
+    </div>
+    <div class="derivation" id="derivation"></div>
+  </section>
+
+  <section aria-labelledby="h-lots">
+    <div class="section-head">
+      <div>
+        <h2 id="h-lots">Holdings</h2>
+        <p>Add one row per purchase. Buying the same stock on different dates or at different prices means separate rows; give them the same stock name.</p>
+        <p id="sampleNote" class="sample-note">These rows are made-up sample holdings. Replace them with yours, or clear all to start fresh.</p>
+      </div>
+      <div class="actions">
+        <button type="button" id="btnImport" aria-expanded="false" aria-controls="importPanel">Paste from broker</button>
+        <button type="button" class="quiet" id="btnSample">Load sample</button>
+        <button type="button" class="quiet" id="btnClear">Clear all</button>
+      </div>
+    </div>
+    <p class="import-done" id="importDone" aria-live="polite"></p>
+    <div class="import" id="importPanel" hidden>
+      <h3>Paste from your broker</h3>
+      <p class="how"><b>Zerodha Console:</b> open Holdings, tap a stock to see its breakdown, then select from the stock name down to the last row and copy. Do one stock at a time.<br>
+      <b>From a screenshot:</b> open it in Photos, press and hold on the text, choose Select All, then Copy. On Android, use Google Lens and Copy text.<br>
+      <b>From a spreadsheet:</b> copy rows that have a date, quantity and price.</p>
+      <label class="sr" for="impText">Copied text</label>
+      <textarea id="impText" spellcheck="false" placeholder="Paste here. For example:&#10;BHEL  ISIN INE257A01026  LTP 451.50&#10;2025-08-07  Qty. 200  Price 224.00&#10;2024-10-22  Qty. 17  Price 237.00"></textarea>
+      <div class="import-fields">
+        <div class="field"><label for="impName">Stock name</label><input type="text" id="impName" autocomplete="off" autocapitalize="characters"></div>
+        <div class="field"><label for="impCur">Price now (₹)</label><input type="text" id="impCur" inputmode="decimal" class="num"></div>
+      </div>
+      <div class="import-preview" id="impPreview" aria-live="polite"></div>
+      <label class="check" id="impReplaceWrap" hidden><input type="checkbox" id="impReplace" checked><span id="impReplaceText"></span></label>
+      <div class="actions">
+        <button type="button" class="primary" id="impAdd" disabled>Add lots</button>
+        <button type="button" id="impCancel">Cancel</button>
+      </div>
+    </div>
+    <div class="grid lots" id="lotsGrid">
+      <div class="row head" aria-hidden="true">
+        <span>Stock</span><span>Bought on</span><span class="r">Shares</span><span class="r">Buy price</span><span class="r">Price now</span><span class="r">Price on 31 Jan 2018</span><span class="r">Gain per share</span><span class="r">Gain on lot</span><span>Status</span><span></span>
+      </div>
+      <div id="lotsBody"></div>
+      <div class="grid-foot">
+        <button type="button" id="btnAdd">Add a lot</button>
+        <span id="lotsTotals"></span>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-plan">
+    <div class="section-head">
+      <div>
+        <h2 id="h-plan">Selling plan</h2>
+        <p class="plan-status" id="planStatus" data-auto="true"></p>
+      </div>
+      <div class="actions">
+        <button type="button" class="primary" id="btnFill">Fill my limit</button>
+        <button type="button" id="btnZero">Set all to zero</button>
+      </div>
+    </div>
+    <div class="grid plan" id="planGrid">
+      <div class="row head" aria-hidden="true">
+        <span></span><span>Stock</span><span class="r">Long-term shares</span><span class="r">Most you can sell alone</span><span class="r">Shares to sell</span><span class="r">Sale value</span><span class="r">Long-term gain</span><span>Notes</span>
+      </div>
+      <div id="planBody"></div>
+      <div class="row total" id="planTotal">
+        <span class="c-pad"></span><span class="c-tlabel">Total</span><span class="c-pad"></span><span class="c-pad"></span>
+        <span class="r"><span class="cell-label">Shares to sell</span><span id="totShares"></span></span><span class="r"><span class="cell-label">Sale value</span><span id="totSale"></span></span><span class="r"><span class="cell-label">Long-term gain</span><span id="totGain"></span></span><span class="note" id="totNote"></span>
+      </div>
+    </div>
+
+    <div class="summary">
+      <div class="panel">
+        <h3>Tax this year (estimate)</h3>
+        <dl class="ledger" id="ledgerTax"></dl>
+        <p id="stNote" hidden></p>
+      </div>
+      <div class="panel">
+        <h3>If you buy the shares back</h3>
+        <dl class="ledger" id="ledgerRebuy"></dl>
+        <p id="sensNote"></p>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-notes">
+    <div class="section-head"><h2 id="h-notes">Before you place the orders</h2></div>
+    <div class="notes">
+      <p><b>Oldest shares go first.</b> For shares held in demat, the oldest purchase is treated as sold first (FIFO). You can't pick a cheaper or newer lot of the same stock, so this calculator doesn't either. Add buy dates so the order is right.</p>
+      <p><b>Buy back the next trading day.</b> Selling and rebuying the same stock on the same day can be netted by your broker and show up as an intraday trade instead of a long-term sale.</p>
+      <p><b>Refresh prices just before selling.</b> The plan is only as good as the price you typed. Market orders can fill above or below it, which is what the safety buffer is for.</p>
+      <p><b>Pre-2018 shares use the grandfathering rule.</b> For shares bought on or before 31 January 2018, the cost is the higher of what you paid and the lower of the 31 January 2018 closing price and today's price. Your broker's tax P&amp;L usually lists that price.</p>
+      <p><b>Charges.</b> Brokerage on the sale reduces your gain, but securities transaction tax (STT) does not. The calculator ignores both, which keeps it slightly on the safe side.</p>
+      <p><b>Bonus shares, splits and mergers</b> change your cost and dates. Use the figures from your broker's statement for those lots; bonus shares usually have a cost of ₹0.</p>
+    </div>
+    <p class="fineprint">This is a planning tool, not tax advice. It assumes you are a resident individual and that every lot is listed equity or an equity-oriented fund on which STT was paid. The final figure is the one in your tax return, which also considers things like surcharge and set-off order. Check with a chartered accountant for unusual cases. <span class="saved" id="savedNote"></span></p>
+  </section>
+</main>
+
+<script>
+/* LTCG harvest engine: pure functions, no DOM. */
+const Engine = (() => {
+  const GF_LAST_DAY = 20180131; // lots bought on or before 31-Jan-2018 are grandfathered
+
+  function num(v) {
+    if (v === null || v === undefined) return NaN;
+    const s = String(v).replace(/[,\s₹]/g, '');
+    if (s === '') return NaN;
+    const n = Number(s);
+    return Number.isFinite(n) ? n : NaN;
+  }
+  function parseDate(s) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || '');
+    if (!m) return null;
+    const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    if (d.getUTCMonth() !== +m[2] - 1) return null;
+    return d;
+  }
+  const key = d => d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
+  // Listed equity is long-term only if held for MORE than 12 months: first eligible day is anniversary + 1.
+  function longTermFrom(buy) {
+    const a = new Date(Date.UTC(buy.getUTCFullYear() + 1, buy.getUTCMonth(), buy.getUTCDate()));
+    a.setUTCDate(a.getUTCDate() + 1);
+    return a;
+  }
+
+  function analyzeLot(lot, saleDate) {
+    const qty = num(lot.qty), buy = num(lot.buy), cur = num(lot.cur), fmv = num(lot.fmv);
+    const out = { id: lot.id, qty, buy, cur, fmv, errors: [], term: 'unknown', ltFrom: null,
+                  grandfathered: false, cost: buy, gps: NaN, valid: false, empty: false };
+    const blank = [lot.qty, lot.buy, lot.cur].every(v => v === '' || v === undefined || v === null);
+    if (blank) { out.empty = true; return out; }
+    if (!(Number.isInteger(qty) && qty > 0)) out.errors.push('Shares must be a whole number above 0');
+    if (!(buy >= 0)) out.errors.push('Enter the buy price');
+    if (!(cur > 0)) out.errors.push('Enter the current price');
+    const bd = parseDate(lot.date);
+    if (bd) {
+      out.ltFrom = longTermFrom(bd);
+      out.term = key(saleDate) >= key(out.ltFrom) ? 'LT' : 'ST';
+      if (key(bd) > key(saleDate)) out.errors.push('Buy date is after the selling date');
+      out.grandfathered = key(bd) <= GF_LAST_DAY;
+    }
+    if (out.grandfathered && fmv > 0 && cur > 0 && buy >= 0) {
+      out.cost = Math.max(buy, Math.min(fmv, cur));
+    }
+    out.valid = out.errors.length === 0;
+    if (out.valid) out.gps = cur - out.cost;
+    return out;
+  }
+
+  function groupStocks(lots, saleDate) {
+    const map = new Map();
+    lots.forEach((lot, idx) => {
+      const a = analyzeLot(lot, saleDate);
+      a.order = idx;
+      a.date = parseDate(lot.date);
+      const raw = (lot.name || '').trim();
+      const k = raw.toUpperCase().replace(/\s+/g, ' ') || '(no name)';
+      if (!map.has(k)) map.set(k, { key: k, name: raw || 'Unnamed stock', lots: [], analyses: [] });
+      map.get(k).analyses.push(a);
+    });
+    const stocks = [];
+    for (const s of map.values()) {
+      const valid = s.analyses.filter(a => a.valid);
+      const allDated = valid.length > 0 && valid.every(a => a.date);
+      if (allDated) valid.sort((x, y) => (x.date - y.date) || (x.order - y.order));
+      s.fifoByDate = allDated;
+      s.missingDates = valid.some(a => !a.date);
+      s.segments = valid.map(a => ({ id: a.id, qty: a.qty, g: a.gps, cur: a.cur, term: a.term, ltFrom: a.ltFrom }));
+      s.totalQty = valid.reduce((t, a) => t + a.qty, 0);
+      let lt = 0;
+      for (const sg of s.segments) { if (sg.term === 'ST') break; lt += sg.qty; }
+      s.ltQty = lt;
+      s.nextST = s.segments.find(sg => sg.term === 'ST') || null;
+      s.potentialLT = 0;
+      for (const sg of s.segments) { if (sg.term === 'ST') break; s.potentialLT += sg.qty * sg.g; }
+      stocks.push(s);
+    }
+    return stocks;
+  }
+
+  // FIFO outcome of selling n shares of a stock
+  function sell(stock, n) {
+    let rem = Math.max(0, Math.floor(n || 0));
+    const r = { shares: 0, lt: 0, st: 0, sale: 0, ltShares: 0, stShares: 0, over: false };
+    for (const sg of stock.segments) {
+      if (rem <= 0) break;
+      const t = Math.min(rem, sg.qty);
+      const gain = t * sg.g;
+      if (sg.term === 'ST') { r.st += gain; r.stShares += t; } else { r.lt += gain; r.ltShares += t; }
+      r.sale += t * sg.cur;
+      r.shares += t;
+      rem -= t;
+    }
+    if (rem > 0) r.over = true;
+    return r;
+  }
+
+  // Largest number of shares of ONE stock (long-term part only) whose gain stays <= room
+  function maxAlone(stock, room) {
+    let best = 0, G = 0, Q = 0;
+    for (const sg of stock.segments) {
+      if (sg.term === 'ST') break;
+      const g = sg.g, q = sg.qty;
+      let j = 0;
+      if (g > 1e-9) j = Math.min(q, Math.floor((room - G) / g + 1e-9));
+      else if (G + q * g <= room + 1e-9) j = q; // zero/loss lot: more shares never raise the gain
+      if (j >= 1) best = Math.max(best, Q + j);
+      G += q * g; Q += q;
+    }
+    return best;
+  }
+
+  // Choose shares per stock (FIFO, long-term lots only) to maximise total LTCG without exceeding room.
+  // Exact integer DP over rupees; per-share gains are rounded UP so the real total can never exceed room.
+  function optimize(stocks, room) {
+    const plan = new Map(stocks.map(s => [s.key, 0]));
+    if (!(room > 0)) return { plan, method: 'none' };
+    const base = [];
+    for (const s of stocks) {
+      const segs = [];
+      for (const sg of s.segments) { if (sg.term === 'ST') break; segs.push(sg); }
+      if (segs.length) base.push({ key: s.key, segs, stock: s });
+    }
+    if (!base.length) return { plan, method: 'none' };
+    const maxQ = Math.max(...base.map(it => it.segs.reduce((t, sg) => t + sg.qty, 0)));
+    const Arr = maxQ < 65535 ? Uint16Array : Int32Array;
+    const cellBudget = Arr === Uint16Array ? 1.2e7 : 6e6;
+    // Pick the finest money unit (paise upwards) that keeps the table small enough for a phone.
+    for (const u of [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10]) {
+      const T = Math.floor(room / u + 1e-9);
+      const items = base.map(it => ({ ...it, w: it.segs.map(sg => ({ w: Math.ceil(sg.g / u - 1e-9), q: sg.qty })) }));
+      let L = 0;
+      for (const it of items) for (const sg of it.w) if (sg.w < 0) L += -sg.w * sg.q;
+      const D = T + 2 * L + 1;
+      const segCount = items.reduce((t, it) => t + it.w.length, 0);
+      if (D > 3e6 || D * items.length > cellBudget || D * segCount > 1.5e8) continue;
+      const r = dp(items, T, L, D, Arr, plan);
+      if (r) { topUp(stocks, plan, room); return { plan, method: 'exact', unit: u }; }
+      break;
+    }
+    const g = greedy(stocks, room);
+    topUp(stocks, g.plan, room);
+    return g;
+  }
+
+  function dp(items, T, L, D, Arr, plan) {
+    let reach = new Uint8Array(D); reach[L] = 1;
+    const cnt = new Int32Array(D);
+    const NONE = Arr === Uint16Array ? 65535 : -1;
+    const choices = [];
+    for (const it of items) {
+      const nr = new Uint8Array(D);
+      const ch = new Arr(D).fill(NONE);
+      for (let i = 0; i < D; i++) if (reach[i]) { nr[i] = 1; ch[i] = 0; }
+      let P = 0, Q = 0;
+      for (const { w, q } of it.w) {
+        if (w > 0) {
+          for (let i = 0; i < D; i++) {
+            const src = i - P;
+            if (src >= 0 && src < D && reach[src]) cnt[i] = 0;
+            else if (i - w >= 0 && cnt[i - w] >= 0 && cnt[i - w] < q) cnt[i] = cnt[i - w] + 1;
+            else cnt[i] = -1;
+            if (cnt[i] > 0 && !nr[i]) { nr[i] = 1; ch[i] = Q + cnt[i]; }
+          }
+        } else if (w < 0) {
+          const a = -w;
+          for (let i = D - 1; i >= 0; i--) {
+            const src = i - P;
+            if (src >= 0 && src < D && reach[src]) cnt[i] = 0;
+            else if (i + a < D && cnt[i + a] >= 0 && cnt[i + a] < q) cnt[i] = cnt[i + a] + 1;
+            else cnt[i] = -1;
+            if (cnt[i] > 0 && !nr[i]) { nr[i] = 1; ch[i] = Q + cnt[i]; }
+          }
+        }
+        P += w * q; Q += q;
+      }
+      reach = nr; choices.push(ch);
+    }
+    let best = -1;
+    for (let i = Math.min(D - 1, T + L); i >= 0; i--) if (reach[i]) { best = i; break; }
+    if (best < 0) return false;
+    let idx = best;
+    const picked = [];
+    for (let s = items.length - 1; s >= 0; s--) {
+      const n = choices[s][idx];
+      if (n === NONE) return false;
+      picked.push([items[s].key, n]);
+      idx -= weight(items[s].w, n);
+    }
+    if (idx !== L) return false;
+    for (const [k, n] of picked) plan.set(k, n);
+    return true;
+  }
+
+  // Use any paise left over by rounding: add single shares wherever the exact gain still fits.
+  function topUp(stocks, plan, room) {
+    const total = () => stocks.reduce((t, s) => t + sell(s, plan.get(s.key) || 0).lt, 0);
+    let used = total();
+    if (used > room + 1e-6) return;
+    let improved = true;
+    while (improved) {
+      improved = false;
+      for (const s of stocks) {
+        const n = plan.get(s.key) || 0;
+        if (n >= s.ltQty) continue;
+        const delta = sell(s, n + 1).lt - sell(s, n).lt;
+        if (delta > 1e-9 && used + delta <= room + 1e-9) { plan.set(s.key, n + 1); used += delta; improved = true; }
+      }
+    }
+  }
+  function weight(segs, n) {
+    let w = 0, rem = n;
+    for (const sg of segs) { if (rem <= 0) break; const t = Math.min(rem, sg.q); w += t * sg.w; rem -= t; }
+    return w;
+  }
+  function greedy(stocks, room) {
+    const plan = new Map(stocks.map(s => [s.key, 0]));
+    let rem = room;
+    const order = [...stocks].sort((a, b) => b.potentialLT - a.potentialLT);
+    for (const s of order) {
+      const n = maxAlone(s, rem);
+      plan.set(s.key, n);
+      rem -= sell(s, n).lt;
+    }
+    return { plan, method: 'greedy' };
+  }
+
+  return { num, parseDate, longTermFrom, analyzeLot, groupStocks, sell, maxAlone, optimize, greedy };
+})();
+
+/* Parses text copied from a broker page (e.g. Zerodha Console holdings breakdown),
+   text copied out of a screenshot, or spreadsheet rows. Pure functions, no DOM. */
+const Importer = (() => {
+  const MON = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+  const MONTHS = '(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.?';
+  const DATE_SRC = String.raw`\b(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})\b|\b(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})\b|\b(\d{1,2})[\s-]+` + MONTHS + String.raw`[\s,-]+(\d{4})\b`;
+  const NUM = String.raw`(\d{1,3}(?:,\d{2,3})+(?:\.\d+)?|\d+(?:\.\d+)?)`;
+  const QTY_RE = new RegExp(String.raw`\b(?:qty|quantity|shares|units|no\.?\s*of\s*shares)\.?\s*[:\-]?\s*` + NUM, 'i');
+  const PRICE_RE = new RegExp(String.raw`\b(?:avg\.?\s*|average\s*|buy\s*|purchase\s*|trade\s*)?(?:price|rate|cost)\.?\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*` + NUM, 'i');
+  const STOP = /^(summary|isin|ltp|xirr|p&l|p\s*&\s*l|total qty\.?|present value|apply|historical|rows?\b.*|manage tags|holdings|equity|qty\.?|price|days old)$/i;
+  const toNum = s => Number(String(s).replace(/,/g, ''));
+  const pad = n => String(n).padStart(2, '0');
+
+  function dateFrom(m) {
+    let y, mo, d;
+    if (m[1]) { y = +m[1]; mo = +m[2]; d = +m[3]; }
+    else if (m[4]) { d = +m[4]; mo = +m[5]; y = +m[6]; }          // Indian style: day first
+    else { d = +m[7]; mo = MON[m[8].toLowerCase().slice(0, 3)]; y = +m[9]; }
+    if (!mo || mo > 12 || d < 1 || d > 31 || y < 1980 || y > 2100) return null;
+    const dt = new Date(Date.UTC(y, mo - 1, d));
+    if (dt.getUTCMonth() !== mo - 1) return null;
+    return `${y}-${pad(mo)}-${pad(d)}`;
+  }
+  function findDates(text) {
+    const re = new RegExp(DATE_SRC, 'gi'), out = [];
+    let m;
+    while ((m = re.exec(text))) { const iso = dateFrom(m); if (iso) out.push({ iso, start: m.index, end: m.index + m[0].length }); }
+    return out;
+  }
+
+  // Split a row into cells. Commas count as separators only when the row is clearly CSV,
+  // because Indian number grouping (1,25,000) also uses commas.
+  function splitCells(line, d) {
+    if (line.includes('\t')) return line.split('\t');
+    if (line.includes(';')) return line.split(';');
+    if (line.includes('|')) return line.split('|');
+    const around = line.slice(Math.max(0, d.start - 2), d.end + 2);
+    if (/,/.test(around) || /,\s/.test(line)) {
+      const cells = []; let cur = '', q = false;
+      for (const ch of line) {
+        if (ch === '"') { q = !q; cur += ch; }
+        else if (ch === ',' && !q) { cells.push(cur); cur = ''; }
+        else cur += ch;
+      }
+      cells.push(cur);
+      return cells;
+    }
+    // plain text: dates stay whole, other words split on spaces
+    const head = line.slice(0, d.start).trim(), date = line.slice(d.start, d.end), tail = line.slice(d.end).trim();
+    return [...(head ? [head] : []), date, ...tail.split(/\s+/)];
+  }
+
+  function meta(text) {
+    const out = {};
+    const ltp = /\bLTP\b\s*[:\-]?\s*(?:₹|rs\.?)?\s*([\d,]+(?:\.\d+)?)/i.exec(text) ||
+                /\b(?:current|market|last)\s*(?:market\s*)?price\b\s*[:\-]?\s*(?:₹|rs\.?)?\s*([\d,]+(?:\.\d+)?)/i.exec(text);
+    if (ltp) { out.ltp = toNum(ltp[1]); out.ltpText = ltp[1].replace(/,/g, ''); }
+    const tq = /\btotal\s*qty\.?\s*[:\-]?\s*([\d,]+)/i.exec(text);
+    if (tq) out.totalQty = toNum(tq[1]);
+    const rows = /\bout\s+of\s+(\d+)/i.exec(text);
+    if (rows) out.rowCount = +rows[1];
+    const isin = /\b(IN[A-Z0-9]{9}\d)\b/.exec(text);
+    if (isin) out.isin = isin[1];
+    // stock name: text before "ISIN" on the same line, or the closest plausible line above it
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const plausible = s => s && s.length <= 40 && /[A-Za-z]/.test(s) && !STOP.test(s) &&
+      /^[A-Za-z0-9&.\- ']+$/.test(s) && !/^\d/.test(s);
+    let idx = lines.findIndex(l => /\bISIN\b/i.test(l) || (out.isin && l.includes(out.isin)));
+    if (idx >= 0) {
+      const before = lines[idx].split(/\bISIN\b/i)[0].replace(out.isin || '#', '').trim();
+      if (plausible(before)) out.name = before;
+      for (let i = idx - 1; !out.name && i >= 0 && i >= idx - 3; i--) if (plausible(lines[i])) out.name = lines[i];
+    }
+    if (!out.name) {
+      const firstDate = findDates(text)[0];
+      const head = firstDate ? text.slice(0, firstDate.start) : text;
+      const cand = head.split('\n').map(l => l.trim()).find(l => plausible(l) && /^[A-Z][A-Z0-9&.\-]{1,24}$/.test(l));
+      if (cand) out.name = cand;
+    }
+    if (out.name) out.name = out.name.toUpperCase().replace(/\s+/g, ' ');
+    return out;
+  }
+
+  function parse(raw) {
+    const text = String(raw || '').replace(/\r/g, '').replace(/[\u00a0\u2009\u202f]/g, ' ').replace(/[“”]/g, '"');
+    const info = meta(text);
+    const dates = findDates(text);
+    let lots = [];
+    // 1) Labelled layout: a date, then "Qty" and "Price" somewhere before the next date
+    dates.forEach((d, i) => {
+      const seg = text.slice(d.end, i + 1 < dates.length ? dates[i + 1].start : text.length);
+      const q = QTY_RE.exec(seg), p = PRICE_RE.exec(seg);
+      if (q && p) lots.push({ date: d.iso, qty: toNum(q[1]), price: toNum(p[1]) });
+    });
+    let mode = 'labelled';
+    // 2) Row layout: each line has a date followed by quantity and price (spreadsheet / CSV)
+    let sells = 0;
+    if (!lots.length) {
+      mode = 'rows';
+      for (const line of text.split('\n')) {
+        const ds = findDates(line);
+        if (!ds.length) continue;
+        const cells = splitCells(line, ds[0]);
+        const di = cells.findIndex(c => findDates(c).length);
+        if (di < 0) continue;
+        if (cells.some(c => /^\s*"?\s*(sell|s)\s*"?\s*$/i.test(c))) { sells++; continue; }
+        const nums = [];
+        for (let i = di + 1; i < cells.length; i++) {
+          const c = cells[i].replace(/["₹]|rs\.?|inr/gi, '').trim();
+          if (/^\d[\d,]*(\.\d+)?$/.test(c)) nums.push(c);
+        }
+        const qi = nums.findIndex(n => Number.isInteger(toNum(n)));   // "200" or "200.000000"
+        if (qi < 0 || qi + 1 >= nums.length) continue;
+        const lot = { date: findDates(cells[di])[0].iso, qty: toNum(nums[qi]), price: toNum(nums[qi + 1]) };
+        const name = cells.slice(0, di).map(c => c.replace(/"/g, '').trim())
+          .find(c => /^[A-Za-z][A-Za-z0-9&.\- ']{0,39}$/.test(c) && !STOP.test(c));
+        if (name) lot.name = name.toUpperCase().replace(/\s+/g, ' ');
+        lots.push(lot);
+      }
+    }
+    const problems = [];
+    lots = lots.filter(l => {
+      const ok = Number.isInteger(l.qty) && l.qty > 0 && Number.isFinite(l.price) && l.price >= 0;
+      if (!ok) problems.push(`Skipped a row dated ${l.date}: shares or price unreadable`);
+      return ok;
+    });
+    const qty = lots.reduce((t, l) => t + l.qty, 0);
+    if (sells) problems.push(`Skipped ${sells} sell trade${sells > 1 ? 's' : ''}. Copy your holdings breakdown instead of the tradebook, since it already accounts for sales.`);
+    return { lots, mode, qty, ...info, problems };
+  }
+
+  return { parse, findDates };
+})();
+
+</script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const E = Engine;
+
+  // ---------- formatting ----------
+  const inr = (x, dp = 0) => {
+    if (!Number.isFinite(x)) return '—';
+    const neg = x < -0.0049;
+    const v = Math.abs(x);
+    const s = v.toLocaleString('en-IN', { minimumFractionDigits: dp, maximumFractionDigits: dp });
+    return (neg ? '−₹' : '₹') + s;
+  };
+  const inrPS = x => inr(x, Math.abs(x - Math.round(x)) > 0.004 ? 2 : 0);
+  const int = x => Number.isFinite(x) ? Math.round(x).toLocaleString('en-IN') : '—';
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const fmtDate = d => d ? `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}` : '';
+  const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+  // ---------- state ----------
+  let seq = 1;
+  const newId = () => 'l' + (seq++) + Math.random().toString(36).slice(2, 6);
+  const sampleLots = () => [
+    { name: 'ALPHA LTD', date: '2019-06-10', qty: '220', buy: '410', cur: '690', fmv: '' },
+    { name: 'ALPHA LTD', date: '2025-12-15', qty: '40', buy: '655', cur: '690', fmv: '' },
+    { name: 'BETA BANK', date: '2017-11-20', qty: '60', buy: '900', cur: '1640', fmv: '1050' },
+    { name: 'BETA BANK', date: '2022-03-08', qty: '120', buy: '1380', cur: '1640', fmv: '' },
+    { name: 'GAMMA PHARMA', date: '2024-02-02', qty: '300', buy: '230', cur: '318', fmv: '' },
+    { name: 'DELTA MOTORS', date: '2023-08-01', qty: '150', buy: '520', cur: '470', fmv: '' },
+  ].map(l => ({ id: newId(), ...l }));
+  const blankLot = () => ({ id: newId(), name: '', date: '', qty: '', buy: '', cur: '', fmv: '' });
+  const defaultSettings = () => ({ limit: '125000', booked: '0', losses: '0', buffer: '1000', saleDate: todayISO(), ltRate: '12.5', stRate: '20' });
+
+  const state = { settings: defaultSettings(), lots: sampleLots(), sell: {}, exclude: {}, auto: true, sample: true };
+  let computed = null;
+
+  // ---------- persistence ----------
+  // Inside Claude: artifact storage. On your own website: this browser's local storage.
+  // Either way the data never leaves the device; there is no server.
+  const STORE_KEY = 'ltcg-harvest:v1';
+  const store = (() => {
+    if (window.storage && typeof window.storage.get === 'function') {
+      return {
+        get: async () => { const r = await window.storage.get(STORE_KEY, false); return r && r.value; },
+        set: v => window.storage.set(STORE_KEY, v, false),
+      };
+    }
+    try {
+      const ls = window.localStorage, probe = STORE_KEY + ':probe';
+      ls.setItem(probe, '1'); ls.removeItem(probe);
+      return { get: async () => ls.getItem(STORE_KEY), set: async v => ls.setItem(STORE_KEY, v) };
+    } catch (e) { return null; }
+  })();
+  let saveTimer = null;
+  function save() {
+    if (!store) return;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(async () => {
+      try {
+        const { saleDate, ...rest } = state.settings; // selling date is always "today" on reopen
+        await store.set(JSON.stringify({ settings: rest, lots: state.lots, sell: state.sell, exclude: state.exclude, auto: state.auto, sample: state.sample }));
+        $('savedNote').textContent = 'Your holdings are saved in this browser only and are never uploaded.';
+      } catch (e) { /* storage unavailable: work in memory */ }
+    }, 700);
+  }
+  async function load() {
+    if (!store) return false;
+    try {
+      const raw = await store.get();
+      if (!raw) return false;
+      const d = JSON.parse(raw);
+      if (Array.isArray(d.lots)) state.lots = d.lots.map(l => ({ ...blankLot(), ...l, id: l.id || newId() }));
+      if (d.settings) state.settings = { ...defaultSettings(), ...d.settings, saleDate: todayISO() };
+      state.sell = d.sell || {}; state.exclude = d.exclude || {}; state.auto = d.auto !== false; state.sample = !!d.sample;
+      return true;
+    } catch (e) { return false; }
+  }
+
+  // ---------- settings ----------
+  function bindSettings() {
+    document.querySelectorAll('[data-setting]').forEach(inp => {
+      inp.value = state.settings[inp.dataset.setting];
+      inp.addEventListener('input', () => { state.settings[inp.dataset.setting] = inp.value; schedule(); });
+    });
+  }
+  function readSettings() {
+    const s = state.settings, n = E.num;
+    const out = {
+      limit: n(s.limit), booked: n(s.booked) || 0, losses: n(s.losses) || 0, buffer: n(s.buffer) || 0,
+      ltRate: n(s.ltRate), stRate: n(s.stRate),
+      saleDate: E.parseDate(s.saleDate) || E.parseDate(todayISO()),
+    };
+    const bad = {
+      limit: !(out.limit >= 0), booked: !(n(s.booked) >= 0 || s.booked === ''), losses: !(n(s.losses) >= 0 || s.losses === ''),
+      buffer: !(n(s.buffer) >= 0 || s.buffer === ''), ltRate: !(out.ltRate >= 0 && out.ltRate <= 100), stRate: !(out.stRate >= 0 && out.stRate <= 100),
+    };
+    if (!(out.limit >= 0)) out.limit = 0;
+    if (!(out.ltRate >= 0)) out.ltRate = 0;
+    if (!(out.stRate >= 0)) out.stRate = 0;
+    Object.entries(bad).forEach(([k, v]) => { const el = document.querySelector(`[data-setting="${k}"]`); el.setAttribute('aria-invalid', v ? 'true' : 'false'); });
+    return out;
+  }
+
+  // ---------- holdings grid ----------
+  const lotFields = [
+    { f: 'name', label: 'Stock', cls: 'c-name', type: 'text', ph: 'e.g. RELIANCE' },
+    { f: 'date', label: 'Bought on', cls: 'c-date', type: 'date' },
+    { f: 'qty', label: 'Shares', cls: 'c-qty', type: 'num', ph: '0' },
+    { f: 'buy', label: 'Buy price (₹)', cls: 'c-buy', type: 'num', ph: '0.00' },
+    { f: 'cur', label: 'Price now (₹)', cls: 'c-cur', type: 'num', ph: '0.00' },
+    { f: 'fmv', label: 'Price on 31 Jan 2018 (₹)', cls: 'c-fmv', type: 'num', ph: '' },
+  ];
+  function renderLots() {
+    const body = $('lotsBody');
+    body.innerHTML = '';
+    state.lots.forEach((lot, i) => {
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.dataset.id = lot.id;
+      row.innerHTML = lotFields.map(c => {
+        const id = `${c.f}-${lot.id}`;
+        const inputType = c.type === 'date' ? 'date' : 'text';
+        const extra = c.type === 'num' ? 'inputmode="decimal" class="num"' : (c.f === 'name' ? 'autocomplete="off" autocapitalize="characters"' : '');
+        return `<div class="${c.cls}"><label class="cell-label" for="${id}">${c.label}</label>` +
+               `<input type="${inputType}" id="${id}" ${extra} data-f="${c.f}" value="${esc(lot[c.f] || '')}" placeholder="${c.ph || ''}" aria-label="${c.label}, row ${i + 1}"></div>`;
+      }).join('') +
+        `<div class="c-gps r"><span class="cell-label">Gain per share</span><span class="calc" data-out="gps">—</span></div>` +
+        `<div class="c-lotgain r"><span class="cell-label">Gain on lot</span><span class="calc" data-out="lotgain">—</span></div>` +
+        `<div class="c-status status" data-out="status"></div>` +
+        `<div class="c-remove"><button type="button" class="remove" data-remove="${lot.id}" aria-label="Remove row ${i + 1}" title="Remove">×</button></div>`;
+      body.appendChild(row);
+    });
+  }
+  $('lotsBody').addEventListener('input', e => {
+    const inp = e.target; if (!inp.dataset.f) return;
+    const row = inp.closest('.row'); const lot = state.lots.find(l => l.id === row.dataset.id); if (!lot) return;
+    lot[inp.dataset.f] = inp.value;
+    state.sample = false;
+    const keyOf = l => (l.name || '').trim().toUpperCase().replace(/\s+/g, ' ');
+    if (inp.dataset.f === 'cur' && keyOf(lot)) {
+      // one market price per stock: keep sibling lots in step
+      state.lots.forEach(o => { if (o !== lot && keyOf(o) === keyOf(lot)) { o.cur = lot.cur; const el = $(`cur-${o.id}`); if (el) el.value = lot.cur; } });
+    }
+    if (inp.dataset.f === 'name' && !lot.cur) {
+      const sib = state.lots.find(o => o !== lot && keyOf(o) === keyOf(lot) && o.cur);
+      if (sib) { lot.cur = sib.cur; $(`cur-${lot.id}`).value = sib.cur; }
+    }
+    schedule();
+  });
+  $('lotsBody').addEventListener('click', e => {
+    const id = e.target.dataset && e.target.dataset.remove; if (!id) return;
+    state.lots = state.lots.filter(l => l.id !== id);
+    if (!state.lots.length) state.lots.push(blankLot());
+    renderLots(); schedule(true);
+  });
+  $('btnAdd').addEventListener('click', () => {
+    const lot = blankLot(); state.lots.push(lot); renderLots(); schedule(true);
+    const el = $(`name-${lot.id}`); if (el) el.focus();
+  });
+  const isBlank = l => !['name', 'qty', 'buy', 'cur'].some(f => String(l[f] || '').trim());
+  const hasOwnData = () => !state.sample && state.lots.some(l => !isBlank(l));
+  // Destructive buttons need a second press (a double click also works) so one stray tap can't wipe your list.
+  // The button itself never changes size, so the second click of a double click lands on it too.
+  function twoStep(btn, armedText, action, needsConfirm) {
+    const wrap = document.createElement('span'); wrap.className = 'two-step';
+    btn.parentNode.insertBefore(wrap, btn); wrap.appendChild(btn);
+    const hint = document.createElement('span'); hint.className = 'arm-hint'; hint.setAttribute('role', 'status');
+    wrap.appendChild(hint);
+    let armed = false, t = null;
+    const reset = () => { armed = false; clearTimeout(t); hint.textContent = ''; btn.classList.remove('armed'); };
+    btn.addEventListener('click', () => {
+      if (armed || !needsConfirm()) { reset(); action(); return; }
+      armed = true; hint.textContent = armedText; btn.classList.add('armed');
+      t = setTimeout(reset, 4000);
+    });
+  }
+  twoStep($('btnSample'), 'Press again to replace your list', () => {
+    state.lots = sampleLots(); state.sell = {}; state.exclude = {}; state.auto = true; state.sample = true; renderLots(); schedule(true);
+  }, hasOwnData);
+  twoStep($('btnClear'), 'Press again to clear', () => {
+    state.lots = [blankLot()]; state.sell = {}; state.exclude = {}; state.auto = true; state.sample = false; renderLots(); schedule(true);
+  }, () => state.lots.some(l => !isBlank(l)));
+
+  // ---------- paste from broker ----------
+  const keyName = s => String(s || '').trim().toUpperCase().replace(/\s+/g, ' ');
+  const imp = { nameEdited: false, curEdited: false, result: null };
+  let doneTimer = null;
+  function openImport() {
+    $('importPanel').hidden = false; $('btnImport').setAttribute('aria-expanded', 'true');
+    $('importDone').textContent = '';
+    $('impText').focus();
+  }
+  function closeImport() {
+    $('importPanel').hidden = true; $('btnImport').setAttribute('aria-expanded', 'false');
+    $('impText').value = ''; $('impName').value = ''; $('impCur').value = '';
+    imp.nameEdited = imp.curEdited = false; previewImport();
+  }
+  $('btnImport').addEventListener('click', () => ($('importPanel').hidden ? openImport() : closeImport()));
+  $('impCancel').addEventListener('click', closeImport);
+  $('impText').addEventListener('input', previewImport);
+  $('impName').addEventListener('input', () => { imp.nameEdited = !!$('impName').value; previewImport(); });
+  $('impCur').addEventListener('input', () => { imp.curEdited = !!$('impCur').value; previewImport(); });
+  $('impReplace').addEventListener('change', previewImport);
+
+  function previewImport() {
+    const raw = $('impText').value;
+    const r = raw.trim() ? Importer.parse(raw) : null;
+    imp.result = r;
+    const out = $('impPreview'), add = $('impAdd'), wrap = $('impReplaceWrap');
+    add.disabled = true; add.textContent = 'Add lots'; wrap.hidden = true;
+    if (!r) { out.innerHTML = ''; return; }
+    if (r.name && !imp.nameEdited) $('impName').value = r.name;
+    if (r.ltp && !imp.curEdited) $('impCur').value = r.ltpText || String(r.ltp);
+    if (!r.lots.length) {
+      out.innerHTML = `<p class="imp-msg bad">No purchases found yet. Each purchase needs a date, a quantity and a price.</p>` +
+        r.problems.map(p => `<p class="imp-msg warn">${esc(p)}</p>`).join('');
+      return;
+    }
+    const name = keyName($('impName').value);
+    const cur = E.num($('impCur').value);
+    const allNamed = r.lots.every(l => l.name);
+    const needsCur = r.lots.some(l => !l.name || l.name === name);
+    const saleDate = E.parseDate(state.settings.saleDate) || E.parseDate(todayISO());
+    const n = r.lots.length, plural = (k, w) => `${int(k)} ${w}${k === 1 ? '' : 's'}`;
+    const msgs = [`<p class="imp-msg">Found ${plural(n, 'purchase')}, ${plural(r.qty, 'share')} in total.</p>`];
+    if (r.totalQty) {
+      if (r.qty === r.totalQty) msgs.push(`<p class="imp-msg ok">This matches the ${int(r.totalQty)} shares your broker shows.</p>`);
+      else if (r.qty < r.totalQty) msgs.push(`<p class="imp-msg bad">Your broker shows ${int(r.totalQty)} shares, so ${int(r.totalQty - r.qty)} are missing. Stretch your selection to the last row and copy again.</p>`);
+      else msgs.push(`<p class="imp-msg bad">That's more than the ${int(r.totalQty)} shares your broker shows. Some rows may be pasted twice.</p>`);
+    } else if (r.rowCount) {
+      if (r.rowCount === n) msgs.push(`<p class="imp-msg ok">All ${int(n)} rows your broker lists are here.</p>`);
+      else msgs.push(`<p class="imp-msg bad">Your broker lists ${int(r.rowCount)} rows but ${int(n)} were found. Stretch your selection to the last row and copy again.</p>`);
+    } else {
+      msgs.push(`<p class="imp-msg warn">Check the share count against your broker before adding.</p>`);
+    }
+    const rows = r.lots.map(l => {
+      const a = E.analyzeLot({ qty: l.qty, buy: l.price, cur: cur > 0 ? cur : l.price, date: l.date }, saleDate);
+      return { l, a };
+    });
+    const gf = rows.filter(x => x.a.grandfathered).length;
+    const st = rows.filter(x => x.a.term === 'ST').length;
+    if (st) msgs.push(`<p class="imp-msg warn">${plural(st, 'lot')} will still be short-term on ${fmtDate(saleDate)}.</p>`);
+    if (gf) msgs.push(`<p class="imp-msg warn">${plural(gf, 'lot')} bought before February 2018. After adding, enter the 31 January 2018 price for ${gf === 1 ? 'it' : 'them'}.</p>`);
+    r.problems.forEach(p => msgs.push(`<p class="imp-msg warn">${esc(p)}</p>`));
+    if (!name && !allNamed) msgs.push(`<p class="imp-msg bad">Enter the stock name.</p>`);
+    if (needsCur && !(cur > 0)) msgs.push(`<p class="imp-msg bad">Enter the price now to add these lots.</p>`);
+    const table = `<div class="imp-table"><table><thead><tr><th>Bought on</th>${allNamed ? '<th>Stock</th>' : ''}<th>Shares</th><th>Buy price</th><th>Status</th></tr></thead><tbody>` +
+      rows.map(({ l, a }) => `<tr><td>${fmtDate(E.parseDate(l.date))}</td>${allNamed ? `<td>${esc(l.name)}</td>` : ''}<td>${int(l.qty)}</td><td>${inrPS(l.price)}</td>` +
+        `<td class="${a.term === 'ST' ? 'st' : ''}">${a.term === 'ST' ? 'Short-term' : 'Long-term'}</td></tr>`).join('') + '</tbody></table></div>';
+    out.innerHTML = msgs.join('') + table;
+
+    const incomingKeys = new Set(r.lots.map(l => l.name || name).filter(Boolean));
+    const existing = state.sample ? 0 : state.lots.filter(l => !isBlank(l) && incomingKeys.has(keyName(l.name))).length;
+    if (existing) {
+      wrap.hidden = false;
+      $('impReplaceText').textContent = `Replace the ${plural(existing, 'lot')} of ${[...incomingKeys].join(', ')} already in your list`;
+    }
+    const ready = (name || allNamed) && (!needsCur || cur > 0);
+    add.disabled = !ready;
+    add.textContent = `Add ${plural(n, 'lot')}`;
+  }
+
+  $('impAdd').addEventListener('click', () => {
+    const r = imp.result; if (!r || !r.lots.length) return;
+    const name = keyName($('impName').value);
+    const cur = $('impCur').value.trim();
+    const priceFor = k => {
+      if (k === name && cur) return cur;
+      const sib = state.lots.find(o => keyName(o.name) === k && o.cur);
+      return sib ? sib.cur : '';
+    };
+    const fresh = r.lots.map(l => {
+      const k = l.name || name;
+      return { id: newId(), name: k, date: l.date, qty: String(l.qty), buy: String(l.price), cur: priceFor(k), fmv: '' };
+    });
+    const keys = new Set(fresh.map(l => l.name));
+    let kept = state.sample ? [] : state.lots.filter(l => !isBlank(l));
+    if (!$('impReplaceWrap').hidden && $('impReplace').checked) kept = kept.filter(l => !keys.has(keyName(l.name)));
+    else kept.forEach(l => { if (keys.has(keyName(l.name)) && keyName(l.name) === name && cur) l.cur = cur; }); // one price per stock
+    state.lots = [...kept, ...fresh];
+    state.sample = false; state.auto = true;
+    renderLots(); schedule(true);
+    const gf = fresh.filter(l => l.date <= '2018-01-31').length;
+    closeImport();
+    $('importDone').textContent = `Added ${fresh.length} lot${fresh.length === 1 ? '' : 's'} of ${[...keys].join(', ')}.` +
+      (gf ? ' Enter the 31 January 2018 price on the highlighted pre-2018 lots.' : '');
+    clearTimeout(doneTimer); doneTimer = setTimeout(() => { $('importDone').textContent = ''; }, 12000);
+    $('h-lots').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+  });
+
+  // ---------- plan grid ----------
+  $('btnFill').addEventListener('click', () => { state.auto = true; schedule(true); });
+  $('btnZero').addEventListener('click', () => { state.auto = false; state.sell = {}; schedule(true); });
+  $('planBody').addEventListener('input', e => {
+    const inp = e.target;
+    if (inp.dataset.sell !== undefined) {
+      state.auto = false;
+      const v = E.num(inp.value);
+      state.sell[inp.dataset.sell] = Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0;
+      schedule();
+    }
+  });
+  $('planBody').addEventListener('change', e => {
+    const inp = e.target;
+    if (inp.dataset.inc !== undefined) {
+      if (inp.checked) delete state.exclude[inp.dataset.inc]; else { state.exclude[inp.dataset.inc] = true; state.sell[inp.dataset.inc] = 0; }
+      schedule(true);
+    }
+  });
+
+  // ---------- compute ----------
+  let timer = null;
+  function schedule(now) {
+    clearTimeout(timer);
+    if (now) recompute(); else timer = setTimeout(recompute, state.auto ? 220 : 60);
+  }
+
+  function recompute() {
+    const S = readSettings();
+    const stocks = E.groupStocks(state.lots, S.saleDate);
+    const capacity = S.limit + S.losses;            // net LTCG that can be realised tax-free
+    const room = capacity - S.booked - S.buffer;    // what this plan may use
+    const included = stocks.filter(s => !state.exclude[s.key]);
+
+    if (state.auto) {
+      const r = E.optimize(included, room);
+      state.sell = {};
+      for (const [k, n] of r.plan) state.sell[k] = n;
+    }
+    const rows = stocks.map(s => {
+      let n = state.sell[s.key] || 0;
+      if (state.exclude[s.key]) n = 0;
+      const over = n > s.totalQty;
+      const res = E.sell(s, Math.min(n, s.totalQty));
+      return { s, n, over, res, alone: E.maxAlone(s, room) };
+    });
+    const lt = rows.reduce((t, r) => t + r.res.lt, 0);
+    const st = rows.reduce((t, r) => t + r.res.st, 0);
+    const sale = rows.reduce((t, r) => t + r.res.sale, 0);
+    const shares = rows.reduce((t, r) => t + r.res.shares, 0);
+    const netLT = S.booked + lt - S.losses;
+    const taxable = Math.max(0, netLT - S.limit);
+    const ltTax = taxable * S.ltRate / 100 * 1.04;
+    const stTax = Math.max(0, st) * S.stRate / 100 * 1.04;
+    const left = room - lt;
+    computed = { S, stocks, rows, capacity, room, lt, st, sale, shares, netLT, taxable, ltTax, stTax, left };
+
+    paintMeter(); paintDerivation(); paintLots(); paintPlan(); paintSummary();
+    $('sampleNote').hidden = !state.sample;
+    save();
+  }
+
+  function paintMeter() {
+    const c = computed, S = c.S;
+    const meter = $('meter');
+    const fill = S.booked + c.lt;
+    const over = Math.max(0, fill - c.capacity);
+    let state_ = 'ok';
+    if (over > 0.5) state_ = 'over'; else if (c.left < -0.5) state_ = 'buffer';
+    meter.dataset.state = state_;
+    if (state_ === 'over') {
+      $('roomFigure').textContent = inr(over);
+      $('roomCaption').textContent = 'over the tax-free limit';
+    } else if (state_ === 'buffer') {
+      $('roomFigure').textContent = inr(0);
+      $('roomCaption').textContent = `room left. ${inr(-c.left)} of your ${inr(S.buffer)} buffer is in use`;
+    } else if (c.room <= 0) {
+      $('roomFigure').textContent = inr(0);
+      $('roomCaption').textContent = S.booked >= c.capacity ? 'room left. Gains already booked have used the limit' : 'room left after the safety buffer';
+    } else {
+      $('roomFigure').textContent = inr(Math.max(0, c.left));
+      $('roomCaption').textContent = `room left of ${inr(c.room)} you can use`;
+    }
+    $('statGain').textContent = inr(c.lt);
+    $('statSale').textContent = inr(c.sale);
+    $('statTax').textContent = inr(c.ltTax + c.stTax);
+
+    const scale = Math.max(c.capacity, fill, 1);
+    const pct = x => Math.max(0, Math.min(100, x / scale * 100));
+    const pos = c.rows.filter(r => r.res.lt > 0.5);
+    const posSum = pos.reduce((t, r) => t + r.res.lt, 0);
+    const factor = posSum > 0 ? Math.max(0, c.lt) / posSum : 0;
+    const segs = [];
+    if (S.booked > 0) segs.push(`<div class="seg seg-booked" style="width:${pct(S.booked)}%" title="Already booked ${inr(S.booked)}"></div>`);
+    pos.forEach(r => segs.push(`<div class="seg seg-stock" style="width:${pct(r.res.lt * factor)}%" title="${esc(r.s.name)}: ${inr(r.res.lt)}"></div>`));
+    $('barFill').innerHTML = segs.join('');
+    const capPct = pct(c.capacity);
+    $('barLimit').style.left = `calc(${capPct}% - 1px)`;
+    const bufStart = pct(Math.max(0, c.capacity - S.buffer));
+    $('barBuffer').style.left = bufStart + '%';
+    $('barBuffer').style.width = Math.max(0, capPct - bufStart) + '%';
+    $('barOver').style.left = capPct + '%';
+    $('barOver').style.width = (over > 0 ? pct(fill) - capPct : 0) + '%';
+    $('bar').setAttribute('aria-label', `${inr(fill)} of ${inr(c.capacity)} tax-free capacity used`);
+  }
+
+  function paintDerivation() {
+    const c = computed, S = c.S;
+    const parts = [`${inr(S.limit)} limit`];
+    if (S.booked) parts.push(`− ${inr(S.booked)} already booked`);
+    if (S.losses) parts.push(`+ ${inr(S.losses)} losses`);
+    if (S.buffer) parts.push(`− ${inr(S.buffer)} buffer`);
+    $('derivation').innerHTML = c.room > 0
+      ? `${parts.join(' ')} = <strong>${inr(c.room)}</strong> of long-term gain you can plan to book.`
+      : `${parts.join(' ')} leaves <strong>no room</strong>. Any further long-term gain this year would be taxed at ${S.ltRate}%.`;
+    const d = S.saleDate, y = d.getUTCMonth() >= 3 ? d.getUTCFullYear() : d.getUTCFullYear() - 1;
+    $('fyLine').textContent = `Selling on ${fmtDate(d)} falls in FY ${y}-${String((y + 1) % 100).padStart(2, '0')}. The tax-free limit is per person, per financial year.`;
+  }
+
+  function paintLots() {
+    const c = computed;
+    const byId = new Map();
+    c.stocks.forEach(s => s.analyses.forEach(a => byId.set(a.id, a)));
+    let ltSum = 0, stSum = 0;
+    state.lots.forEach(lot => {
+      const row = document.querySelector(`#lotsBody .row[data-id="${lot.id}"]`); if (!row) return;
+      const a = byId.get(lot.id);
+      const fmvEl = $(`fmv-${lot.id}`);
+      const gfEligible = a && a.grandfathered;
+      fmvEl.disabled = !gfEligible;
+      fmvEl.placeholder = gfEligible ? 'from broker' : '—';
+      fmvEl.classList.toggle('needs', !!(gfEligible && !(E.num(fmvEl.value) > 0)));
+      if (!gfEligible && fmvEl.value) { /* keep value but ignore */ }
+      const set = (k, html) => { row.querySelector(`[data-out="${k}"]`).innerHTML = html; };
+      ['qty', 'buy', 'cur'].forEach(f => $(`${f}-${lot.id}`).setAttribute('aria-invalid', 'false'));
+      if (!a || a.empty) { set('gps', '—'); set('lotgain', '—'); set('status', '<span class="muted">Fill in shares and prices</span>'); return; }
+      if (!a.valid) {
+        if (!(Number.isInteger(a.qty) && a.qty > 0)) $(`qty-${lot.id}`).setAttribute('aria-invalid', 'true');
+        if (!(a.buy >= 0)) $(`buy-${lot.id}`).setAttribute('aria-invalid', 'true');
+        if (!(a.cur > 0)) $(`cur-${lot.id}`).setAttribute('aria-invalid', 'true');
+        set('gps', '—'); set('lotgain', '—'); set('status', `<span class="err">${esc(a.errors[0])}</span>`); return;
+      }
+      const lotGain = a.gps * a.qty;
+      if (a.term === 'ST') stSum += lotGain; else ltSum += lotGain;
+      set('gps', `<span class="${a.gps < 0 ? 'neg' : ''}">${inrPS(a.gps)}</span>`);
+      set('lotgain', `<span class="${lotGain < 0 ? 'neg' : ''}">${inr(lotGain)}</span>`);
+      let st = '';
+      if (a.term === 'LT') st = '<span class="lt">Long-term</span>';
+      else if (a.term === 'ST') st = `<span class="st">Short-term</span>, long-term from ${fmtDate(a.ltFrom)}`;
+      else st = '<span class="muted">No date, treated as long-term</span>';
+      if (a.grandfathered) st += a.cost !== a.buy ? `<br><span class="tag">Cost raised to ${inrPS(a.cost)} (2018 rule)</span>` : (a.fmv > 0 ? '' : '<br><span class="tag">Add the 31 Jan 2018 price</span>');
+      set('status', st);
+    });
+    $('lotsTotals').innerHTML = `Unrealised long-term gain <b>${inr(ltSum)}</b>` + (stSum ? `&nbsp;&nbsp; Short-term <b>${inr(stSum)}</b>` : '');
+  }
+
+  function paintPlan() {
+    const c = computed, body = $('planBody');
+    const status = $('planStatus');
+    status.dataset.auto = String(state.auto);
+    status.textContent = state.auto
+      ? 'Shares are chosen to book as much long-term gain as fits, oldest lots first, never touching short-term lots.'
+      : 'You have edited the numbers. Choose Fill my limit to let the calculator pick again.';
+    const live = new Set(c.rows.map(r => r.s.key));
+    body.querySelectorAll('.row').forEach(el => { if (!live.has(el.dataset.key)) el.remove(); });
+    if (!c.rows.length || !c.rows.some(r => r.s.totalQty > 0)) {
+      if (!body.querySelector('.empty')) body.insertAdjacentHTML('afterbegin', '<div class="empty">Add holdings above and the plan appears here.</div>');
+    } else { const em = body.querySelector('.empty'); if (em) em.remove(); }
+
+    let pos = 0;
+    c.rows.forEach((r, i) => {
+      if (r.s.totalQty === 0) { const old = body.querySelector(`.row[data-key="${CSS.escape(r.s.key)}"]`); if (old) old.remove(); return; }
+      let row = body.querySelector(`.row[data-key="${CSS.escape(r.s.key)}"]`);
+      if (!row) {
+        row = document.createElement('div');
+        row.className = 'row'; row.dataset.key = r.s.key;
+        const sid = 'sell-' + i + '-' + Math.random().toString(36).slice(2, 6);
+        row.innerHTML =
+          `<div class="c-inc"><input type="checkbox" data-inc="${esc(r.s.key)}" aria-label="Include ${esc(r.s.name)} in the plan"></div>` +
+          `<div class="c-stock"><b data-o="name"></b></div>` +
+          `<div class="c-lt r"><span class="cell-label">Long-term shares</span><span data-o="lt"></span></div>` +
+          `<div class="c-alone r"><span class="cell-label">Most you can sell alone</span><span data-o="alone"></span></div>` +
+          `<div class="c-sell"><label class="cell-label" for="${sid}">Shares to sell</label><input type="text" inputmode="numeric" class="num sell-input" id="${sid}" data-sell="${esc(r.s.key)}"></div>` +
+          `<div class="c-sale r"><span class="cell-label">Sale value</span><span data-o="sale"></span></div>` +
+          `<div class="c-gain r"><span class="cell-label">Long-term gain</span><span class="calc" data-o="gain"></span></div>` +
+          `<div class="c-note note" data-o="note"></div>`;
+      }
+      const current = [...body.querySelectorAll(':scope > .row')];
+      if (current[pos] !== row) body.insertBefore(row, current[pos] || null); // order follows holdings
+      pos++;
+      const o = k => row.querySelector(`[data-o="${k}"]`);
+      const excluded = !!state.exclude[r.s.key];
+      row.classList.toggle('excluded', excluded);
+      row.querySelector('[data-inc]').checked = !excluded;
+      o('name').textContent = r.s.name;
+      o('lt').textContent = r.s.ltQty === r.s.totalQty ? int(r.s.ltQty) : `${int(r.s.ltQty)} of ${int(r.s.totalQty)}`;
+      o('alone').textContent = r.s.ltQty ? int(r.alone) : '—';
+      const inp = row.querySelector('[data-sell]');
+      if (document.activeElement !== inp) inp.value = r.n ? String(r.n) : '0';
+      inp.disabled = excluded;
+      inp.classList.toggle('edited', !state.auto && !excluded);
+      inp.setAttribute('aria-invalid', r.over ? 'true' : 'false');
+      o('sale').textContent = inr(r.res.sale);
+      o('gain').innerHTML = `<span class="${r.res.lt < 0 ? 'neg' : ''}">${inr(r.res.lt)}</span>`;
+      o('note').innerHTML = noteFor(r);
+    });
+    $('totShares').textContent = int(c.shares) + ' shares';
+    $('totSale').textContent = inr(c.sale);
+    $('totGain').innerHTML = `<span class="${c.lt < 0 ? 'neg' : ''}">${inr(c.lt)}</span>`;
+    $('totNote').innerHTML = c.st > 0.5 ? `<span class="bad">Plus ${inr(c.st)} short-term gain</span>` : '';
+  }
+
+  function noteFor(r) {
+    const s = r.s, bits = [];
+    if (r.over) bits.push(`<span class="bad">You hold only ${int(s.totalQty)} shares.</span>`);
+    if (r.res.stShares > 0) bits.push(`<span class="bad">${int(r.res.stShares)} of these are short-term, taxed at ${computed.S.stRate}%.</span>`);
+    if (s.potentialLT < -0.5 && s.ltQty) bits.push(`Selling all books a ${inr(-s.potentialLT)} loss. Worth it only if this year's gains go over the limit.`);
+    if (s.nextST && r.res.stShares === 0) {
+      bits.push(`<span class="warn">After ${int(s.ltQty)} shares the next lot is short-term</span>, long-term from ${fmtDate(s.nextST.ltFrom)}.`);
+    }
+    if (s.segments.length > 1 && !s.nextST) bits.push(s.fifoByDate ? `${s.segments.length} lots, oldest sold first.` : `${s.segments.length} lots in row order. Add dates for true FIFO.`);
+    if (s.missingDates && s.segments.length === 1) bits.push('No buy date, so the 12-month check is skipped.');
+    return bits.join(' ');
+  }
+
+  function paintSummary() {
+    const c = computed, S = c.S;
+    const line = (k, v, cls = '') => `<div class="${cls}"><dt>${k}</dt><dd>${v}</dd></div>`;
+    let tax = '';
+    tax += line('Already booked this year', inr(S.booked));
+    tax += line('From this plan', inr(c.lt));
+    if (S.losses) tax += line('Less losses set off', inr(-S.losses));
+    tax += line('Net long-term gain', inr(c.netLT), 'sum');
+    tax += line('Tax-free limit', inr(S.limit));
+    tax += line('Taxable long-term gain', inr(c.taxable));
+    tax += line(`Tax at ${S.ltRate}% plus 4% cess`, inr(c.ltTax), 'sum');
+    $('ledgerTax').innerHTML = tax;
+    const stp = $('stNote');
+    if (c.st > 0.5) { stp.hidden = false; stp.innerHTML = `This plan also sells shares held 12 months or less, adding <b>${inr(c.st)}</b> of short-term gain and about <b>${inr(c.stTax)}</b> of tax at ${S.stRate}%.`; }
+    else stp.hidden = true;
+
+    const next = new Date(S.saleDate.getTime() + 86400000);
+    const ltAgain = E.longTermFrom(next);
+    let rb = '';
+    rb += line('Cash needed to buy back', inr(c.sale));
+    rb += line('Rise in your cost base', inr(Math.max(0, c.lt)));
+    rb += line('Future tax this can save', inr(Math.max(0, c.lt) * S.ltRate / 100 * 1.04), 'sum');
+    $('ledgerRebuy').innerHTML = rb;
+    let sens = `Shares bought back on ${fmtDate(next)} start a fresh 12-month clock and turn long-term on ${fmtDate(ltAgain)}.`;
+    if (c.sale > 0) {
+      const perPct = c.sale / 100;
+      const cushion = c.capacity - (S.booked + c.lt);
+      sens = `Every 1% rise in prices before your orders fill adds about <b>${inr(perPct)}</b> of gain. ` +
+        (cushion > 0.5 ? `You have <b>${inr(cushion)}</b> of headroom below the limit, enough for a rise of about <b>${(cushion / perPct).toFixed(2)}%</b>. `
+                       : 'You are already at or over the limit. ') + sens;
+    }
+    $('sensNote').innerHTML = sens;
+  }
+
+  // ---------- boot ----------
+  (async () => {
+    await load();
+    bindSettings();
+    renderLots();
+    recompute();
+  })();
+})();
+</script>
+</body>
+</html>
