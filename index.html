@@ -184,6 +184,18 @@
   .check { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 14px; }
   .import .actions { margin-top: 14px; }
   .import-done { margin: 0 0 12px; color: var(--ok); font-weight: 600; }
+  .stmt-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 0 0 16px; }
+  .file-btn { display: inline-block; cursor: pointer; font-size: 14px; border-radius: 6px; padding: 8px 14px; border: 1px solid var(--rule); background: var(--sheet); color: var(--ink); white-space: nowrap; }
+  .file-btn:hover { border-color: var(--ink-3); }
+  .stmt-bar:focus-within .file-btn { outline: 3px solid var(--marigold); outline-offset: 2px; }
+  .stmt-help { font-size: 13px; color: var(--ink-2); max-width: 70ch; }
+  .stmt .ledger { max-width: 520px; margin-top: 4px; }
+  .stmt .meta { margin: 0 0 10px; font-size: 13.5px; color: var(--ink-2); }
+  .stmt .block { margin-top: 14px; }
+  .stmt .imp-table td.neg { color: var(--alarm); }
+  .stale { margin-top: 14px; padding: 12px 14px; border-left: 3px solid var(--marigold); background: var(--marigold-wash); font-size: 14px; }
+  .stale p { margin: 0 0 6px; }
+  .stale ul { margin: 0 0 10px; padding-left: 18px; }
   .import-done:empty { display: none; }
 
   /* Summary */
@@ -302,6 +314,13 @@
         <p id="fyLine">The tax-free limit is per person, per financial year.</p>
       </div>
     </div>
+    <div class="stmt-bar">
+      <input type="file" id="stmtFile" class="sr" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv">
+      <label for="stmtFile" class="file-btn">Read tax statement</label>
+      <span class="stmt-help">Your broker's tax P&amp;L for this year, as Excel or CSV. On Zerodha: Console, Reports, Tax P&amp;L, then download. The file is read on this device and never uploaded.</span>
+    </div>
+    <p class="import-done" id="stmtDone" aria-live="polite"></p>
+    <div class="import stmt" id="stmtPanel" hidden aria-live="polite"></div>
     <div class="position">
       <div class="field">
         <label for="s-limit">Tax-free limit (₹)</label>
@@ -309,14 +328,14 @@
         <p class="help">₹1,25,000 for FY 2026-27. Shares and equity mutual funds share this one limit.</p>
       </div>
       <div class="field">
-        <label for="s-booked">Long-term gains already booked (₹)</label>
+        <label for="s-booked">Long-term gain already booked, net (₹)</label>
         <input type="text" inputmode="decimal" class="num" id="s-booked" data-setting="booked">
-        <p class="help">Since 1 April, from shares and equity mutual funds, including SIP redemptions.</p>
+        <p class="help" id="help-booked">Gains minus losses on shares and equity funds sold since 1 April. Read your tax statement to fill this in.</p>
       </div>
       <div class="field">
-        <label for="s-losses">Capital losses to set off (₹)</label>
+        <label for="s-losses">Losses carried forward (₹)</label>
         <input type="text" inputmode="decimal" class="num" id="s-losses" data-setting="losses">
-        <p class="help">This year's losses and long-term losses carried forward. Leave out any short-term loss you need against short-term gains.</p>
+        <p class="help">Capital losses from earlier years shown in your last tax return. This year's losses are already in the net figure.</p>
       </div>
       <div class="field">
         <label for="s-buffer">Safety buffer (₹)</label>
@@ -802,6 +821,181 @@ const Importer = (() => {
   return { parse, findDates };
 })();
 
+/* Reads a broker tax P&L (Zerodha's Tax P&L xlsx, or any sheet listing exits with
+   symbol, buy date, sell date and profit) and works out what has already been booked. */
+const Statement = (() => {
+  const txt = v => (v === null || v === undefined) ? '' : String(v).trim();
+  const num = v => {
+    if (typeof v === 'number') return v;
+    const s = txt(v).replace(/[,₹\s]/g, '').replace(/^\((.*)\)$/, '-$1');
+    if (s === '' || !/^-?\d*\.?\d+$/.test(s)) return NaN;
+    return Number(s);
+  };
+  const pad = n => String(n).padStart(2, '0');
+  function toISO(v) {
+    if (typeof v === 'number' && v > 20000 && v < 80000) {           // Excel serial date
+      const d = new Date(Date.UTC(1899, 11, 30) + Math.round(v) * 86400000);
+      return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+    }
+    if (v instanceof Date && !isNaN(v)) return `${v.getUTCFullYear()}-${pad(v.getUTCMonth() + 1)}-${pad(v.getUTCDate())}`;
+    const s = txt(v);
+    let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s);
+    if (m) return `${m[1]}-${pad(m[2])}-${pad(m[3])}`;
+    m = /^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/.exec(s);                 // Indian style, day first
+    if (m) return `${m[3]}-${pad(m[2])}-${pad(m[1])}`;
+    m = /^(\d{1,2})[\s-]+([A-Za-z]{3})[a-z]*[\s,-]+(\d{4})/.exec(s);
+    if (m) {
+      const mo = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].indexOf(m[2].toLowerCase()) + 1;
+      if (mo) return `${m[3]}-${pad(mo)}-${pad(m[1])}`;
+    }
+    return '';
+  }
+  const days = (a, b) => (Date.parse(b) - Date.parse(a)) / 86400000;
+  // Listed equity is long-term when held for more than 12 months
+  function heldOverAYear(entry, exit) {
+    const e = new Date(entry + 'T00:00:00Z'), x = new Date(exit + 'T00:00:00Z');
+    const lt = new Date(Date.UTC(e.getUTCFullYear() + 1, e.getUTCMonth(), e.getUTCDate() + 1));
+    return x >= lt;
+  }
+
+  const COLS = {
+    symbol: /^(symbol|scrip( name)?|stock( name)?|security( name)?|instrument|name|company)$/i,
+    isin: /^isin$/i,
+    entry: /(entry|buy|purchase|acquisition|acquired)\s*(date)?|date of (acquisition|purchase)/i,
+    exit: /(exit|sell|sale|transfer|sold)\s*(date)?|date of (sale|transfer)/i,
+    qty: /^(quantity|qty\.?|shares|units|no\.? of shares)$/i,
+    buyValue: /^(buy|purchase|cost of acquisition|acquisition)\s*(value|cost|amount)?$/i,
+    sellValue: /^(sell|sale|full value of consideration)\s*(value|amount|consideration)?$/i,
+    profit: /^(profit|realised p&l|realized p&l|p&l|gain|pnl|realised gain|realized gain|profit\/loss|gain\/loss)$/i,
+    taxable: /^(taxable profit|taxable gain|taxable p&l)$/i,
+    fmv: /fair market value|fmv/i,
+  };
+  function headerMap(row) {
+    const cells = row.map(txt);
+    const map = {};
+    cells.forEach((c, i) => {
+      if (!c) return;
+      for (const [k, re] of Object.entries(COLS)) {
+        if (map[k] !== undefined) continue;
+        if (k === 'entry' && !/date/i.test(c)) continue;
+        if (k === 'exit' && !/date/i.test(c)) continue;
+        if (re.test(c)) { map[k] = i; break; }
+      }
+    });
+    const ok = map.symbol !== undefined && map.entry !== undefined && map.exit !== undefined &&
+      (map.profit !== undefined || map.taxable !== undefined || (map.buyValue !== undefined && map.sellValue !== undefined));
+    return ok ? map : null;
+  }
+  function kindOf(title) {
+    const t = title.toLowerCase();
+    if (/intraday|speculat/.test(t)) return 'intraday';
+    if (/buy\s*back/.test(t)) return 'buyback';
+    if (/f\s*&\s*o|futures|options|currency|commodity|derivative/.test(t)) return 'derivative';
+    if (/mutual fund/.test(t)) return 'mf';
+    if (/long\s*term|ltcg/.test(t)) return 'lt';
+    if (/short\s*term|stcg/.test(t)) return 'st';
+    return '';
+  }
+
+  function parse(sheets) {
+    const trades = [];
+    const out = { trades, from: '', to: '', broker: '', summaryLT: NaN, summaryST: NaN, charges: NaN, dividends: NaN, warnings: [] };
+    for (const sh of sheets) {
+      let section = '', map = null;
+      for (const row of sh.rows) {
+        const cells = (row || []).map(txt);
+        const filled = cells.filter(Boolean);
+        const joined = filled.join(' ');
+        if (!out.from) {
+          const p = /from\s+(\S+)\s+to\s+(\S+)/i.exec(joined);
+          if (p && toISO(p[1]) && toISO(p[2])) { out.from = toISO(p[1]); out.to = toISO(p[2]); }
+        }
+        if (/zerodha/i.test(joined)) out.broker = 'Zerodha';
+        // Summary figures, used only to cross-check
+        if (filled.length >= 2) {
+          const label = filled[0].toLowerCase(), val = num(row[cells.lastIndexOf(filled[filled.length - 1])]);
+          if (/^equity long term profit/.test(label) && Number.isFinite(val)) out.summaryLT = val;
+          if (/^equity short term profit/.test(label) && Number.isFinite(val)) out.summaryST = val;
+          if (/^other credits & debits/.test(label) && Number.isFinite(val)) out.charges = (Number.isFinite(out.charges) ? out.charges : 0) + val;
+          if (/^total dividend amount/.test(label) && Number.isFinite(val)) out.dividends = val;
+        }
+        if (!filled.length) { map = null; continue; }
+        if (filled.length === 1) { section = filled[0]; map = null; continue; }
+        const h = headerMap(row);
+        if (h) { map = h; continue; }
+        if (!map) continue;
+        const symbol = txt(row[map.symbol]);
+        const entry = toISO(row[map.entry]), exit = toISO(row[map.exit]);
+        if (!symbol || !entry || !exit) continue;
+        let profit = map.taxable !== undefined ? num(row[map.taxable]) : NaN;
+        const rawProfit = map.profit !== undefined ? num(row[map.profit]) : NaN;
+        if (!Number.isFinite(profit)) profit = rawProfit;
+        if (!Number.isFinite(profit) && map.buyValue !== undefined) profit = num(row[map.sellValue]) - num(row[map.buyValue]);
+        if (!Number.isFinite(profit)) continue;
+        let kind = kindOf(section) || kindOf(sh.name);
+        const term = heldOverAYear(entry, exit) ? 'lt' : 'st';
+        const t = {
+          symbol: symbol.toUpperCase(), isin: map.isin !== undefined ? txt(row[map.isin]) : '',
+          entry, exit, qty: map.qty !== undefined ? num(row[map.qty]) : NaN,
+          profit, rawProfit: Number.isFinite(rawProfit) ? rawProfit : profit, kind: kind || 'equity', term,
+        };
+        if (t.kind === 'lt' || t.kind === 'st') { if (t.kind !== term) t.termMismatch = true; t.term = t.kind; t.kind = 'equity'; }
+        trades.push(t);
+      }
+    }
+    if (!out.to && trades.length) out.to = trades.reduce((m, t) => t.exit > m ? t.exit : m, '');
+    if (!out.from && trades.length) out.from = trades.reduce((m, t) => !m || t.exit < m ? t.exit : m, '');
+    return out;
+  }
+
+  // Net position from the trades. Mutual funds count only if the user says they are equity funds.
+  function totals(st, { includeMF = true } = {}) {
+    const use = t => t.kind === 'equity' || (t.kind === 'mf' && includeMF);
+    const sum = f => st.trades.filter(t => use(t) && f(t)).reduce((a, t) => a + t.profit, 0);
+    const ltGain = sum(t => t.term === 'lt' && t.profit > 0);
+    const ltLoss = sum(t => t.term === 'lt' && t.profit < 0);
+    const stNet = sum(t => t.term === 'st');
+    const ltNet = ltGain + ltLoss;
+    const booked = ltNet + Math.min(0, stNet);   // a net short-term loss can also be set off against long-term gains
+    const ignored = {};
+    for (const t of st.trades) if (!use(t)) ignored[t.kind] = (ignored[t.kind] || 0) + t.profit;
+    const eqLTraw = st.trades.filter(t => t.kind === 'equity' && t.term === 'lt').reduce((a, t) => a + t.rawProfit, 0);
+    return { ltGain, ltLoss, ltNet, stNet, booked, ignored, eqLTraw,
+             mfCount: st.trades.filter(t => t.kind === 'mf').length,
+             buybackCount: st.trades.filter(t => t.kind === 'buyback').length };
+  }
+
+  // Group by stock and term for display
+  function byStock(st, opts) {
+    const use = t => t.kind === 'equity' || (t.kind === 'mf' && (opts || {}).includeMF !== false);
+    const m = new Map();
+    for (const t of st.trades) {
+      if (!use(t)) continue;
+      const k = t.symbol + '|' + t.term;
+      const g = m.get(k) || { symbol: t.symbol, term: t.term, kind: t.kind, qty: 0, profit: 0, first: t.exit, last: t.exit };
+      g.qty += Number.isFinite(t.qty) ? t.qty : 0; g.profit += t.profit;
+      if (t.exit < g.first) g.first = t.exit; if (t.exit > g.last) g.last = t.exit;
+      m.set(k, g);
+    }
+    return [...m.values()].sort((a, b) => b.profit - a.profit);
+  }
+
+  // Sold quantity per stock and buy date, to spot holdings rows copied before a sale
+  function soldLots(st) {
+    const m = new Map();
+    for (const t of st.trades) {
+      if (t.kind !== 'equity' || !Number.isFinite(t.qty)) continue;
+      const k = t.symbol + '|' + t.entry;
+      const g = m.get(k) || { symbol: t.symbol, entry: t.entry, qty: 0, exit: t.exit };
+      g.qty += t.qty; if (t.exit > g.exit) g.exit = t.exit;
+      m.set(k, g);
+    }
+    return [...m.values()];
+  }
+
+  return { parse, totals, byStock, soldLots, toISO, num };
+})();
+
 </script>
 <script>
 (() => {
@@ -837,7 +1031,7 @@ const Importer = (() => {
   const blankLot = () => ({ id: newId(), name: '', date: '', qty: '', buy: '', cur: '', fmv: '' });
   const defaultSettings = () => ({ limit: '125000', booked: '0', losses: '0', buffer: '1000', saleDate: todayISO(), ltRate: '12.5', stRate: '20' });
 
-  const state = { settings: defaultSettings(), lots: sampleLots(), sell: {}, exclude: {}, auto: true, sample: true };
+  const state = { settings: defaultSettings(), lots: sampleLots(), sell: {}, exclude: {}, auto: true, sample: true, stmt: null };
   let computed = null;
 
   // ---------- persistence ----------
@@ -864,7 +1058,7 @@ const Importer = (() => {
     saveTimer = setTimeout(async () => {
       try {
         const { saleDate, ...rest } = state.settings; // selling date is always "today" on reopen
-        await store.set(JSON.stringify({ settings: rest, lots: state.lots, sell: state.sell, exclude: state.exclude, auto: state.auto, sample: state.sample }));
+        await store.set(JSON.stringify({ settings: rest, lots: state.lots, sell: state.sell, exclude: state.exclude, auto: state.auto, sample: state.sample, stmt: state.stmt }));
         $('savedNote').textContent = 'Your holdings are saved in this browser only and are never uploaded.';
       } catch (e) { /* storage unavailable: work in memory */ }
     }, 700);
@@ -877,7 +1071,7 @@ const Importer = (() => {
       const d = JSON.parse(raw);
       if (Array.isArray(d.lots)) state.lots = d.lots.map(l => ({ ...blankLot(), ...l, id: l.id || newId() }));
       if (d.settings) state.settings = { ...defaultSettings(), ...d.settings, saleDate: todayISO() };
-      state.sell = d.sell || {}; state.exclude = d.exclude || {}; state.auto = d.auto !== false; state.sample = !!d.sample;
+      state.sell = d.sell || {}; state.exclude = d.exclude || {}; state.auto = d.auto !== false; state.sample = !!d.sample; state.stmt = d.stmt || null;
       return true;
     } catch (e) { return false; }
   }
@@ -897,7 +1091,7 @@ const Importer = (() => {
       saleDate: E.parseDate(s.saleDate) || E.parseDate(todayISO()),
     };
     const bad = {
-      limit: !(out.limit >= 0), booked: !(n(s.booked) >= 0 || s.booked === ''), losses: !(n(s.losses) >= 0 || s.losses === ''),
+      limit: !(out.limit >= 0), booked: !(Number.isFinite(n(s.booked)) || String(s.booked).trim() === ''), losses: !(n(s.losses) >= 0 || s.losses === ''),
       buffer: !(n(s.buffer) >= 0 || s.buffer === ''), ltRate: !(out.ltRate >= 0 && out.ltRate <= 100), stRate: !(out.stRate >= 0 && out.stRate <= 100),
     };
     if (!(out.limit >= 0)) out.limit = 0;
@@ -1094,6 +1288,253 @@ const Importer = (() => {
     $('h-lots').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
   });
 
+  // ---------- tax statement ----------
+  // Spreadsheets are read in the browser: an .xlsx is a zip of XML files, which modern browsers can unpack natively.
+  async function unzip(buf) {
+    const u8 = new Uint8Array(buf), dv = new DataView(buf);
+    let eocd = -1;
+    for (let i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+    if (eocd < 0) throw new Error('Not a zip file');
+    const count = dv.getUint16(eocd + 10, true);
+    let p = dv.getUint32(eocd + 16, true);
+    const entries = {}, dec = new TextDecoder();
+    for (let k = 0; k < count && dv.getUint32(p, true) === 0x02014b50; k++) {
+      const method = dv.getUint16(p + 10, true), size = dv.getUint32(p + 20, true);
+      const nl = dv.getUint16(p + 28, true), xl = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true);
+      const local = dv.getUint32(p + 42, true);
+      entries[dec.decode(u8.subarray(p + 46, p + 46 + nl))] = { method, size, local };
+      p += 46 + nl + xl + cl;
+    }
+    return async name => {
+      const e = entries[name]; if (!e) return null;
+      const start = e.local + 30 + dv.getUint16(e.local + 26, true) + dv.getUint16(e.local + 28, true);
+      const data = u8.subarray(start, start + e.size);
+      if (e.method === 0) return data;
+      if (e.method !== 8 || typeof DecompressionStream === 'undefined') throw new Error('Cannot unpack');
+      const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+      return new Uint8Array(await new Response(stream).arrayBuffer());
+    };
+  }
+  const tags = (node, name) => [...node.getElementsByTagNameNS('*', name)];
+  function colIndex(ref) {
+    const m = /^([A-Z]+)/.exec(ref || ''); if (!m) return -1;
+    return [...m[1]].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
+  }
+  async function readXlsx(buf) {
+    const read = await unzip(buf), dec = new TextDecoder();
+    const xml = async name => { const b = await read(name); return b ? new DOMParser().parseFromString(dec.decode(b), 'application/xml') : null; };
+    const wb = await xml('xl/workbook.xml'), rels = await xml('xl/_rels/workbook.xml.rels');
+    if (!wb || !rels) throw new Error('Not a workbook');
+    const target = {};
+    tags(rels, 'Relationship').forEach(r => { target[r.getAttribute('Id')] = r.getAttribute('Target'); });
+    const ss = await xml('xl/sharedStrings.xml');
+    const strings = ss ? tags(ss, 'si').map(si => tags(si, 't').filter(t => t.parentNode.localName !== 'rPh').map(t => t.textContent).join('')) : [];
+    const sheets = [];
+    for (const sh of tags(wb, 'sheet')) {
+      const idAttr = [...sh.attributes].find(a => a.localName === 'id' && /relationships/.test(a.namespaceURI || a.name));
+      let path = target[idAttr ? idAttr.value : sh.getAttribute('r:id')];
+      if (!path) continue;
+      path = path.startsWith('/') ? path.slice(1) : 'xl/' + path.replace(/^\.\//, '');
+      const doc = await xml(path); if (!doc) continue;
+      const rows = [];
+      tags(doc, 'row').forEach(r => {
+        const ri = r.getAttribute('r') ? +r.getAttribute('r') - 1 : rows.length;
+        const arr = [];
+        tags(r, 'c').forEach((c, j) => {
+          const ci = c.getAttribute('r') ? colIndex(c.getAttribute('r')) : j;
+          const t = c.getAttribute('t'), v = tags(c, 'v')[0];
+          let val = '';
+          if (t === 's') val = v ? (strings[+v.textContent] ?? '') : '';
+          else if (t === 'inlineStr') val = tags(c, 't').map(x => x.textContent).join('');
+          else if (t === 'str' || t === 'e') val = v ? v.textContent : '';
+          else if (t === 'b') val = v ? v.textContent === '1' : '';
+          else val = v ? Number(v.textContent) : '';
+          arr[ci] = val;
+        });
+        rows[ri] = Array.from(arr, x => (x === undefined ? '' : x));
+      });
+      sheets.push({ name: sh.getAttribute('name') || '', rows: Array.from(rows, r => r || []) });
+    }
+    return sheets;
+  }
+  // Older browsers, or old .xls files: borrow SheetJS from a CDN.
+  function readWithSheetJS(buf) {
+    return new Promise((resolve, reject) => {
+      const go = () => {
+        try {
+          const X = window.XLSX, wb = X.read(new Uint8Array(buf), { type: 'array' });
+          resolve(wb.SheetNames.map(n => ({ name: n, rows: X.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: '' }) })));
+        } catch (e) { reject(e); }
+      };
+      if (window.XLSX) return go();
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      s.onload = go; s.onerror = () => reject(new Error('offline'));
+      document.head.appendChild(s);
+    });
+  }
+  function parseCSV(text) {
+    const delim = (text.split('\n')[0].match(/\t/g) || []).length > (text.split('\n')[0].match(/,/g) || []).length ? '\t' : ',';
+    const rows = []; let row = [], cur = '', q = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (q) { if (ch === '"' && text[i + 1] === '"') { cur += '"'; i++; } else if (ch === '"') q = false; else cur += ch; }
+      else if (ch === '"') q = true;
+      else if (ch === delim) { row.push(cur); cur = ''; }
+      else if (ch === '\n') { row.push(cur.replace(/\r$/, '')); rows.push(row); row = []; cur = ''; }
+      else cur += ch;
+    }
+    if (cur || row.length) { row.push(cur); rows.push(row); }
+    return rows;
+  }
+
+  const stmt = { data: null, file: '', includeMF: true };
+  const fyOf = iso => { const d = E.parseDate(iso); if (!d) return null; return d.getUTCMonth() >= 3 ? d.getUTCFullYear() : d.getUTCFullYear() - 1; };
+  const fyLabel = y => `FY ${y}-${String((y + 1) % 100).padStart(2, '0')}`;
+  const fmtISO = iso => fmtDate(E.parseDate(iso));
+
+  $('stmtFile').addEventListener('change', async () => {
+    const input = $('stmtFile'), f = input.files && input.files[0];
+    if (!f) return;
+    const panel = $('stmtPanel');
+    $('stmtDone').textContent = '';
+    panel.hidden = false;
+    panel.innerHTML = `<h3>Reading ${esc(f.name)}…</h3>`;
+    try {
+      const buf = await f.arrayBuffer(), u8 = new Uint8Array(buf);
+      let sheets;
+      if (u8[0] === 0x50 && u8[1] === 0x4b) {
+        try { sheets = await readXlsx(buf); } catch (e) { sheets = await readWithSheetJS(buf); }
+      } else if (u8.subarray(0, 512).includes(0)) {
+        sheets = await readWithSheetJS(buf);
+      } else {
+        sheets = [{ name: f.name, rows: parseCSV(new TextDecoder().decode(u8)) }];
+      }
+      stmt.data = Statement.parse(sheets); stmt.file = f.name; stmt.includeMF = true;
+      renderStmt();
+    } catch (e) {
+      stmt.data = null;
+      panel.innerHTML = `<h3>Couldn't read ${esc(f.name)}</h3><p class="imp-msg bad">Download the tax P&amp;L again as an Excel file and try once more, or type the net long-term gain into the box below yourself.</p>` +
+        `<div class="actions"><button type="button" data-act="close">Close</button></div>`;
+    }
+    input.value = '';
+  });
+
+  function staleMatches(st) {
+    return Statement.soldLots(st).map(s => {
+      const lots = state.lots.filter(l => !isBlank(l) && keyName(l.name) === s.symbol && l.date === s.entry);
+      return { ...s, lots, held: lots.reduce((t, l) => t + (E.num(l.qty) || 0), 0) };
+    }).filter(m => m.lots.length);
+  }
+
+  function renderStmt() {
+    const st = stmt.data, panel = $('stmtPanel');
+    if (!st) return;
+    panel.hidden = false;
+    const close = `<button type="button" data-act="close">Close</button>`;
+    if (!st.trades.length) {
+      panel.innerHTML = `<h3>No sales found</h3><p class="imp-msg bad">This file has no rows with a stock, buy date, sell date and profit. If you haven't sold anything since 1 April, your booked gain is ₹0.</p><div class="actions">${close}</div>`;
+      return;
+    }
+    const T = Statement.totals(st, { includeMF: stmt.includeMF });
+    const S = readSettings();
+    const line = (k, v, cls = '') => `<div class="${cls}"><dt>${k}</dt><dd>${v}</dd></div>`;
+    const names = f => [...new Set(Statement.byStock(st, { includeMF: stmt.includeMF }).filter(f).map(g => g.symbol))];
+    const gainers = names(g => g.term === 'lt' && g.profit > 0), losers = names(g => g.term === 'lt' && g.profit < 0);
+    const listNames = a => a.length > 3 ? `${a.slice(0, 3).join(', ')} and ${a.length - 3} more` : a.join(', ');
+
+    let html = `<h3>Your tax statement</h3><p class="meta">${st.broker ? esc(st.broker) + ' tax P&amp;L, s' : 'S'}ales from ${fmtISO(st.from)} to ${fmtISO(st.to)}. ${esc(stmt.file)}</p>`;
+    html += '<dl class="ledger">';
+    html += line(`Long-term gains${gainers.length ? ` <span class="muted">(${esc(listNames(gainers))})</span>` : ''}`, inr(T.ltGain));
+    if (T.ltLoss) html += line(`Long-term losses <span class="muted">(${esc(listNames(losers))})</span>`, inr(T.ltLoss));
+    if (T.stNet < 0) html += line('Short-term loss, set off against long-term', inr(T.stNet));
+    html += line('Net long-term gain already booked', inr(T.booked), 'sum');
+    html += line(`Left of your ${inr(S.limit)} limit`, inr(S.limit + S.losses - T.booked));
+    html += '</dl>';
+
+    const notes = [];
+    if (Number.isFinite(st.summaryLT) && !T.mfCount) {
+      notes.push(Math.abs(st.summaryLT - T.eqLTraw) < 1
+        ? `<p class="imp-msg ok">This matches the long-term total of ${inr(st.summaryLT)} in your broker's own summary.</p>`
+        : `<p class="imp-msg warn">Your broker's summary shows ${inr(st.summaryLT)} for long-term equity. The figure above uses the taxable profit on each sale, which can differ for shares bought before February 2018.</p>`);
+    }
+    if (T.stNet > 0) notes.push(`<p class="imp-msg">Short-term gains of ${inr(T.stNet)} are taxed at ${S.stRate}% on their own and don't use this limit.</p>`);
+    if (T.mfCount) notes.push(`<label class="check"><input type="checkbox" data-act="mf" ${stmt.includeMF ? 'checked' : ''}> Count the ${T.mfCount} mutual fund sale${T.mfCount > 1 ? 's' : ''} as equity funds. Untick if they were debt funds, which are taxed differently.</label>`);
+    const left = [];
+    if (T.ignored.intraday) left.push(`intraday trades (${inr(T.ignored.intraday)})`);
+    if (T.ignored.derivative) left.push(`F&amp;O (${inr(T.ignored.derivative)})`);
+    if (Number.isFinite(st.charges) && st.charges) left.push(`account and DP charges (${inr(Math.abs(st.charges))})`);
+    if (st.dividends) left.push(`dividends (${inr(st.dividends)})`);
+    if (left.length) notes.push(`<p class="imp-msg">Not counted, because they're taxed separately: ${left.join(', ')}.</p>`);
+    if (T.buybackCount) notes.push(`<p class="imp-msg warn">${T.buybackCount} buyback row${T.buybackCount > 1 ? 's are' : ' is'} left out. Buybacks are taxed under special rules, so check those with your CA.</p>`);
+    const fyStmt = fyOf(st.from), fySale = fyOf(state.settings.saleDate || todayISO());
+    if (fyStmt !== null && fySale !== null && fyStmt !== fySale)
+      notes.push(`<p class="imp-msg bad">This statement is for ${fyLabel(fyStmt)}, but you're planning sales in ${fyLabel(fySale)}. Download this year's tax P&amp;L instead.</p>`);
+    else if (st.to && st.to < (state.settings.saleDate || todayISO()))
+      notes.push(`<p class="imp-msg warn">Sales after ${fmtISO(st.to)} aren't in this file. If you've sold since, add those gains to the figure.</p>`);
+    html += `<div class="block">${notes.join('')}</div>`;
+
+    const groups = Statement.byStock(st, { includeMF: stmt.includeMF });
+    html += `<div class="imp-table"><table><thead><tr><th>Stock</th><th>Sold on</th><th>Shares</th><th>Gain or loss</th><th>Term</th></tr></thead><tbody>` +
+      groups.map(g => `<tr><td>${esc(g.symbol)}</td><td>${g.first === g.last ? fmtISO(g.last) : `${fmtISO(g.first)} to ${fmtISO(g.last)}`}</td><td>${g.qty ? int(g.qty) : '—'}</td>` +
+        `<td class="${g.profit < 0 ? 'neg' : ''}">${inr(g.profit)}</td><td>${g.term === 'lt' ? 'Long-term' : 'Short-term'}${g.kind === 'mf' ? ', fund' : ''}</td></tr>`).join('') +
+      `</tbody></table></div>`;
+
+    const stale = staleMatches(st);
+    if (stale.length) {
+      html += `<div class="stale"><p><b>Your holdings list still has the lots these sales came from:</b></p><ul>` +
+        stale.map(m => `<li>${esc(m.symbol)} bought ${fmtISO(m.entry)}: ${int(m.qty)} sold on ${fmtISO(m.exit)}, ${int(m.held)} still listed</li>`).join('') +
+        `</ul><p>If you copied your holdings before these sales, take the sold shares out so they aren't counted twice.</p>` +
+        `<button type="button" data-act="trim">Take sold shares out of my holdings</button></div>`;
+    }
+    html += `<div class="actions"><button type="button" class="primary" data-act="use">Use ${inr(T.booked)} as booked</button>${close}</div>`;
+    panel.innerHTML = html;
+    stmt.totals = T;
+  }
+
+  $('stmtPanel').addEventListener('change', e => {
+    if (e.target.dataset.act === 'mf') { stmt.includeMF = e.target.checked; renderStmt(); }
+  });
+  $('stmtPanel').addEventListener('click', e => {
+    const act = e.target.dataset && e.target.dataset.act;
+    if (act === 'close') { $('stmtPanel').hidden = true; }
+    if (act === 'use' && stmt.totals) {
+      const v = String(Math.round(stmt.totals.booked * 100) / 100);
+      state.settings.booked = v; $('s-booked').value = v;
+      state.stmt = { booked: v, to: stmt.data.to, from: stmt.data.from, file: stmt.file };
+      $('stmtPanel').hidden = true;
+      $('stmtDone').textContent = `Filled in ${inr(stmt.totals.booked)} of net long-term gain booked from ${fmtISO(stmt.data.from)} to ${fmtISO(stmt.data.to)}.`;
+      schedule(true);
+    }
+    if (act === 'trim') {
+      const stale = staleMatches(stmt.data);
+      let shares = 0;
+      const drop = new Set();
+      for (const m of stale) {
+        let q = m.qty;
+        for (const l of m.lots) {
+          if (q <= 0) break;
+          const have = E.num(l.qty) || 0, take = Math.min(have, q);
+          q -= take; shares += take;
+          if (have - take <= 0) drop.add(l.id); else l.qty = String(have - take);
+        }
+      }
+      state.lots = state.lots.filter(l => !drop.has(l.id));
+      if (!state.lots.length) state.lots.push(blankLot());
+      state.auto = true;
+      renderLots(); schedule(true); renderStmt();
+      $('stmtDone').textContent = `Took ${int(shares)} sold shares out of your holdings.`;
+    }
+  });
+
+  const HELP_BOOKED = 'Gains minus losses on shares and equity funds sold since 1 April. Read your tax statement to fill this in.';
+  function paintStmtNote() {
+    const el = $('help-booked'), s = state.stmt;
+    if (s && String(state.settings.booked).trim() === s.booked) {
+      el.textContent = `From your tax statement, covering sales up to ${fmtISO(s.to)}. Sold anything since? Add that too.`;
+    } else el.textContent = HELP_BOOKED;
+  }
+
   // ---------- plan grid ----------
   $('btnFill').addEventListener('click', () => { state.auto = true; schedule(true); });
   $('btnZero').addEventListener('click', () => { state.auto = false; state.sell = {}; schedule(true); });
@@ -1151,7 +1592,7 @@ const Importer = (() => {
     const left = room - lt;
     computed = { S, stocks, rows, capacity, room, lt, st, sale, shares, netLT, taxable, ltTax, stTax, left };
 
-    paintMeter(); paintDerivation(); paintLots(); paintPlan(); paintSummary();
+    paintMeter(); paintDerivation(); paintLots(); paintPlan(); paintSummary(); paintStmtNote();
     $('sampleNote').hidden = !state.sample;
     save();
   }
@@ -1203,7 +1644,8 @@ const Importer = (() => {
   function paintDerivation() {
     const c = computed, S = c.S;
     const parts = [`${inr(S.limit)} limit`];
-    if (S.booked) parts.push(`− ${inr(S.booked)} already booked`);
+    if (S.booked > 0) parts.push(`− ${inr(S.booked)} already booked`);
+    if (S.booked < 0) parts.push(`+ ${inr(-S.booked)} net loss already booked`);
     if (S.losses) parts.push(`+ ${inr(S.losses)} losses`);
     if (S.buffer) parts.push(`− ${inr(S.buffer)} buffer`);
     $('derivation').innerHTML = c.room > 0
@@ -1323,9 +1765,9 @@ const Importer = (() => {
     const c = computed, S = c.S;
     const line = (k, v, cls = '') => `<div class="${cls}"><dt>${k}</dt><dd>${v}</dd></div>`;
     let tax = '';
-    tax += line('Already booked this year', inr(S.booked));
+    tax += line('Already booked this year, net', inr(S.booked));
     tax += line('From this plan', inr(c.lt));
-    if (S.losses) tax += line('Less losses set off', inr(-S.losses));
+    if (S.losses) tax += line('Less losses carried forward', inr(-S.losses));
     tax += line('Net long-term gain', inr(c.netLT), 'sum');
     tax += line('Tax-free limit', inr(S.limit));
     tax += line('Taxable long-term gain', inr(c.taxable));
